@@ -1,7 +1,15 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
+  "framework": null,
   "rewrites": [
-    { "source": "/:path*", "destination": "https://sonora-api-vdnd.onrender.com/:path*" }
+    {
+      "source": "/",
+      "destination": "https://sonora-api-vdnd.onrender.com/"
+    },
+    {
+      "source": "/:path*",
+      "destination": "https://sonora-api-vdnd.onrender.com/:path*"
+    }
   ]
 }
