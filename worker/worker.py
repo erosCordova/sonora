@@ -162,9 +162,14 @@ def process(job: dict):
         log.error("Error inesperado en %s\n%s", job_id, traceback.format_exc())
         fail(job_id, f"{e.__class__.__name__}: {e}\n{traceback.format_exc()}", False)
     finally:
-        shutil.rmtree(workdir, ignore_errors=True)  # archivos temporales
+        # Los fallos durante la limpieza no deben detener el worker ni bloquear
+        # las siguientes tareas. El estado de la tarea siempre se reinicia.
+        shutil.rmtree(workdir, ignore_errors=True)
         try:
-            engine.release()  # liberar memoria
+            if engine is not None:
+                engine.release()
+        except Exception:  # noqa: BLE001
+            log.exception("No se pudo liberar la memoria tras %s; el worker seguirá operativo", job_id)
         finally:
             state.update(job_id=None, attempt=None, cancel=False)
 

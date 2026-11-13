@@ -122,8 +122,9 @@ LLM_MODEL=qwen2.5:7b-instruct
 
 ### Correo de recuperación (opcional)
 
-`SMTP_URL=smtp://usuario:clave@host:587`. Sin SMTP no se envía nada: el enlace se escribe en los logs del servidor y la
-interfaz lo advierte (no se expone al navegador).
+Define `APP_URL=https://tu-dominio` en producción y configura `SMTP_URL=smtp://usuario:clave@host:587`.
+Los enlaces de restablecimiento de contraseña se construyen solamente desde `APP_URL`, nunca desde cabeceras HTTP.
+Sin SMTP, **no se envía correo**: solo en desarrollo local se imprime el enlace en los logs para probar el flujo; en producción no se registra el token.
 
 ## Docker y despliegue
 
@@ -183,3 +184,10 @@ Para comprobar el protocolo del worker sin cargar el modelo, instala `worker/req
 `python -m unittest discover -s tests -p 'test_*.py' -v`.
 
 No se debe considerar completada la generación por IA hasta obtener y escuchar una canción real del motor.
+
+## Pruebas automáticas en GitHub
+
+El workflow `.github/workflows/ci.yml` ejecuta al hacer push a `main` o abrir un pull request:
+`npm ci`, ESLint, revisión TypeScript, compilación Next.js y pruebas Python del protocolo del worker.
+No requiere GPU para estas comprobaciones. Las pruebas de integración con PostgreSQL y la generación musical con ACE-Step
+se verifican por separado antes de declarar lista una instalación de producción.

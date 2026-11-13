@@ -57,6 +57,42 @@ class WorkerProtocolTest(unittest.TestCase):
         self.assertIsNone(worker.state["job_id"])
         self.assertIsNone(worker.state["attempt"])
 
+    def test_cleanup_error_does_not_kill_worker(self):
+        class CleanupFailsEngine:
+            def run(self, job, workdir, source, progress, cancelled):
+                output = workdir / "audio.wav"
+                output.write_bytes(b"audio-sintetico")
+                return SimpleNamespace(path=output, duration_sec=2, model="test", model_version="test",
+                                       caption=None, lyrics=None, bpm=None, keyscale=None, language=None, seed=None)
+
+            def release(self):
+                raise RuntimeError("Fallo simulado al liberar memoria")
+
+        with patch.object(worker, "engine", CleanupFailsEngine()), \
+             patch.object(worker.session, "post", return_value=SimpleNamespace(status_code=200, ok=True, text="")), \
+             self.assertLogs(worker.log, level="ERROR") as logged:
+            # Debe completar la limpieza aunque el motor lance una excepción.
+            worker.process({"id": "job-cleanup", "kind": "generate", "title": "Limpieza",
+                            "params": {}, "attempts": 1})
+        self.assertIn("No se pudo liberar la memoria", logged.output[0])
+        self.assertIsNone(worker.state["job_id"])
+        self.assertIsNone(worker.state["attempt"])
+        self.assertFalse(worker.state["cancel"])
+
+    def test_cancelled_job_does_not_upload_audio(self):
+        class CancelEngine:
+            def run(self, job, workdir, source, progress, cancelled):
+                raise worker.JobCancelled()
+
+            def release(self):
+                pass
+
+        with patch.object(worker, "engine", CancelEngine()), patch.object(worker.session, "post") as post:
+            worker.process({"id": "job-cancelled", "kind": "generate", "title": "Cancelada",
+                            "params": {}, "attempts": 1})
+        self.assertFalse(any(call.args[0].endswith("/complete") for call in post.call_args_list))
+        self.assertIsNone(worker.state["job_id"])
+
 
 if __name__ == "__main__":
     unittest.main()
