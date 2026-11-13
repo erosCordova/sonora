@@ -53,7 +53,10 @@ export function SongDetail({ songId, onClose, onChanged }: { songId: string | nu
   }, [onClose]);
 
   useEffect(() => {
-    if (currentId) void load(currentId);
+    // La carga es asíncrona y se cancela si cambia la versión seleccionada.
+    if (!currentId) return;
+    const timer = window.setTimeout(() => void load(currentId), 0);
+    return () => window.clearTimeout(timer);
   }, [currentId, load]);
 
   if (!songId) return null;

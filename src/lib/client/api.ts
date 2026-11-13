@@ -40,7 +40,7 @@ export async function api<T = unknown>(url: string, init?: RequestInit & { json?
     data = await res.json();
   } catch {}
   if (!res.ok) {
-    if (res.status === 401 && typeof window !== "undefined") window.location.href = "/login";
+    if (res.status === 401 && typeof window !== "undefined") window.location.replace("/login");
     throw new Error((data as { error?: string } | null)?.error ?? `Error ${res.status}`);
   }
   return data as T;
