@@ -1,17 +1,33 @@
 "use client";
 import { Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { Button } from "@/components/ui";
 
+// El estado de tema vive en <html>; así cualquier control observa el mismo valor.
+function subscribeTheme(onChange: () => void) {
+  const notify = () => onChange();
+  const syncStorage = (event: StorageEvent) => {
+    if (event.key !== "theme") return;
+    document.documentElement.classList.toggle("dark", event.newValue === "dark");
+    notify();
+  };
+  window.addEventListener("sonora:theme", notify);
+  window.addEventListener("storage", syncStorage);
+  return () => {
+    window.removeEventListener("sonora:theme", notify);
+    window.removeEventListener("storage", syncStorage);
+  };
+}
+
+const getTheme = () => document.documentElement.classList.contains("dark");
+const getServerTheme = () => false;
+
 export function useTheme() {
-  const [dark, setDark] = useState(false);
-  useEffect(() => {
-    setDark(document.documentElement.classList.contains("dark"));
-  }, []);
-  const set = (d: boolean) => {
-    document.documentElement.classList.toggle("dark", d);
-    localStorage.setItem("theme", d ? "dark" : "light");
-    setDark(d);
+  const dark = useSyncExternalStore(subscribeTheme, getTheme, getServerTheme);
+  const set = (value: boolean) => {
+    document.documentElement.classList.toggle("dark", value);
+    localStorage.setItem("theme", value ? "dark" : "light");
+    window.dispatchEvent(new Event("sonora:theme"));
   };
   return { dark, set };
 }

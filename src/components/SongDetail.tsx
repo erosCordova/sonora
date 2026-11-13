@@ -21,8 +21,11 @@ const TOOLS: { id: Tool; label: string; desc: string }[] = [
 ];
 
 export function SongDetail({ songId, onClose, onChanged }: { songId: string | null; onClose: () => void; onChanged: () => void }) {
-  const [data, setData] = useState<{ song: SongDTO; versions: SongDTO[] } | null>(null);
-  const [currentId, setCurrentId] = useState<string | null>(songId);
+  const [loaded, setLoaded] = useState<{ id: string; data: { song: SongDTO; versions: SongDTO[] } } | null>(null);
+  const [selection, setSelection] = useState<{ rootId: string | null; id: string | null }>({ rootId: songId, id: songId });
+  const currentId = selection.rootId === songId ? selection.id : songId;
+  // Mantener fuera de pantalla los datos de una versión anterior durante la carga.
+  const data = loaded?.id === currentId ? loaded.data : null;
   const [tool, setTool] = useState<Tool>("variation");
   const [busy, setBusy] = useState(false);
   const system = useJobs((s) => s.system);
@@ -35,12 +38,10 @@ export function SongDetail({ songId, onClose, onChanged }: { songId: string | nu
   const [start, setStart] = useState(0);
   const [end, setEnd] = useState(10);
 
-  useEffect(() => setCurrentId(songId), [songId]);
-
   const load = useCallback(async (id: string) => {
     try {
       const d = await api<{ song: SongDTO; versions: SongDTO[] }>(`/api/songs/${id}`);
-      setData(d);
+      setLoaded({ id, data: d });
       setCaption(d.song.caption);
       setLyrics(d.song.lyrics === "[Instrumental]" ? "" : d.song.lyrics);
       setStart(0);
@@ -52,7 +53,6 @@ export function SongDetail({ songId, onClose, onChanged }: { songId: string | nu
   }, [onClose]);
 
   useEffect(() => {
-    setData(null);
     if (currentId) void load(currentId);
   }, [currentId, load]);
 
@@ -146,7 +146,7 @@ export function SongDetail({ songId, onClose, onChanged }: { songId: string | nu
               {data.versions.map((v) => (
                 <li key={v.id} className={cx("flex items-center gap-3 rounded-xl border p-2", v.id === s.id ? "border-brand/60 bg-surface-2" : "border-line")}>
                   <Cover seed={v.coverSeed} className="h-10 w-10 shrink-0 rounded-lg" />
-                  <button className="min-w-0 flex-1 text-left" onClick={() => setCurrentId(v.id)}>
+                  <button className="min-w-0 flex-1 text-left" onClick={() => setSelection({ rootId: songId, id: v.id })}>
                     <span className="block truncate text-sm font-medium">{v.title}</span>
                     <span className="block text-xs text-muted">{VERSION_LABELS[v.versionKind] ?? v.versionKind} · {fmtTime(v.durationSec)} · {fmtDate(v.createdAt)}</span>
                   </button>
