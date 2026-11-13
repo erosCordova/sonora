@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Avenir Next", "Segoe UI Variable Display", ui-sans-serif, system-ui, sans-serif;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-brand-2: var(--brand-2);
+  --color-ok: #22c55e;
+  --color-warn: #f59e0b;
+  --color-bad: #ef4444;
+}
+
+:root {
+  --bg: #f6f4fb;
+  --surface: #ffffff;
+  --surface-2: #efeaf8;
+  --line: #e2dcf0;
+  --fg: #1b1530;
+  --muted: #6b6485;
+  --brand: #7c3aed;
+  --brand-2: #ec4899;
+}
+.dark {
+  --bg: #0c0a14;
+  --surface: #151124;
+  --surface-2: #1d1833;
+  --line: #2a2347;
+  --fg: #f1edfb;
+  --muted: #9b93b8;
+  --brand: #a78bfa;
+  --brand-2: #f472b6;
+}
+
+html { color-scheme: light; }
+html.dark { color-scheme: dark; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: color-mix(in srgb, var(--brand) 35%, transparent); }
+* { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+
+.bg-brand-gradient { background-image: linear-gradient(135deg, var(--brand), var(--brand-2)); }
+.text-brand-gradient {
+  background-image: linear-gradient(135deg, var(--brand), var(--brand-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.glow { box-shadow: 0 10px 40px -12px color-mix(in srgb, var(--brand) 55%, transparent); }
+
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.shimmer {
+  background-image: linear-gradient(90deg, transparent, color-mix(in srgb, var(--brand) 30%, transparent), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2.2s linear infinite;
+}
+@keyframes eq { 0%,100% { transform: scaleY(.3); } 50% { transform: scaleY(1); } }
+.eq-bar { transform-origin: bottom; animation: eq 1s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer, .eq-bar { animation: none; }
+}

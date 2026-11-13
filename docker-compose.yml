@@ -1,0 +1,61 @@
+# Desarrollo/producción ligera: web + PostgreSQL (+ Ollama opcional para letras).
+# El worker de IA requiere GPU: ver README (perfil "gpu" o ejecución en otra máquina).
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: app_db
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d app_db"]
+      interval: 5s
+      retries: 10
+
+  web:
+    build: .
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/app_db
+      APP_SECRET: ${APP_SECRET:?define APP_SECRET (openssl rand -hex 32)}
+      WORKER_TOKEN: ${WORKER_TOKEN:?define WORKER_TOKEN (openssl rand -hex 32)}
+      APP_URL: ${APP_URL:-http://localhost:3000}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      SMTP_URL: ${SMTP_URL:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_MODEL: ${LLM_MODEL:-qwen2.5:7b-instruct}
+    volumes: [audio:/data/storage]
+    ports: ["3000:3000"]
+
+  ollama:
+    profiles: [llm]
+    image: ollama/ollama
+    volumes: [ollama:/root/.ollama]
+    # Luego: docker compose exec ollama ollama pull qwen2.5:7b-instruct
+    # y define LLM_BASE_URL=http://ollama:11434/v1
+
+  worker:
+    profiles: [gpu]
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    environment:
+      SONORA_API_URL: http://web:3000
+      WORKER_TOKEN: ${WORKER_TOKEN}
+      ACESTEP_LM_MODEL: ${ACESTEP_LM_MODEL:-acestep-5Hz-lm-1.7B}
+      ACESTEP_OFFLOAD: ${ACESTEP_OFFLOAD:-false}
+      ACESTEP_QUANTIZATION: ${ACESTEP_QUANTIZATION:-none}
+    volumes: [checkpoints:/opt/ACE-Step-1.5/checkpoints]
+    depends_on: [web]
+    deploy:
+      resources:
+        reservations:
+          devices: [{ driver: nvidia, count: 1, capabilities: [gpu] }]
+
+volumes:
+  pgdata:
+  audio:
+  ollama:
+  checkpoints:
