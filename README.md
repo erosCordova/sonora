@@ -91,6 +91,12 @@ PostgreSQL debe estar instalado, en ejecución y contener la base de datos indic
 `setup` no modifica un `.env` existente. Copia el `WORKER_TOKEN` creado en `.env` a `worker/.env`.
 Para una instalación nueva puedes usar Docker, como se explica más abajo.
 
+### Windows 11 + RTX 4050: iniciar sin escribir comandos
+
+Descarga [**Instalar-Sonora-RTX4050.cmd**](https://github.com/erosCordova/sonora/blob/main/Instalar-Sonora-RTX4050.cmd) y ejecútalo con doble clic en tu laptop con Git for Windows instalado. La primera vez descarga este repositorio, comprueba la RTX 4050, prepara Python/CUDA y ACE-Step con perfil de 6 GB y pide **por pantalla** el `WORKER_TOKEN` privado de Render (Environment del servicio). El token permanece en `%LOCALAPPDATA%\Sonora-GPU\sonora\worker\.env`, no se publica en Git. Para iniciar el motor otra vez, ejecuta el mismo archivo; deja abierta la ventana del proceso mientras quieras generar canciones.
+
+Esto **no proporciona control remoto sobre tu PC** ni inicia la GPU sin tu autorización. El script descarga varios GB de dependencias y pesos; deja suficiente espacio de disco. El modo configurado usa `ACESTEP_LM_MODEL=none`: para la primera canción utiliza **Personalizado**, escribe una letra y selecciona una duración corta. La compatibilidad final de ACE-Step en tu equipo se confirma cuando el motor arranca, registra un latido en Sonora y produce un audio real.
+
 ### Worker de IA (en la máquina con GPU)
 
 ```bash
