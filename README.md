@@ -230,3 +230,31 @@ arrancar `worker/worker.py` en una máquina con GPU, con `SONORA_API_URL` y
 `WORKER_TOKEN` configurados. El demo oficial de ACE-Step en Hugging Face ZeroGPU
 permite probar el modelo por separado con cuotas y sin conexión a la biblioteca
 de Sonora. No se ofrece música de demostración como si fuera un resultado.
+
+### Instalación guiada para Windows 11 con RTX 4050 (6 GB)
+
+La RTX 4050 de 6141 MiB detectada por `nvidia-smi` permite intentar ejecutar ACE-Step localmente
+con **Turbo + cuantización INT8 + CPU offload + sin LM**. El script en Git Bash instala
+`uv` con WinGet cuando sea necesario, descarga ACE-Step oficial, instala dependencias Python,
+comprueba PyTorch/CUDA, escribe un perfil optimizado y arranca el motor. **No instala ni ejecuta programas en
+la laptop hasta que el propietario lance el script**. Requiere varios GB de disco libre y
+la primera instalación descargará dependencias y pesos; no hay garantía de velocidad ni
+calidad antes de una generación real.
+
+```bash
+git clone https://github.com/erosCordova/sonora.git
+cd sonora
+bash scripts/install-worker-rtx4050.sh
+# En posteriores arranques: bash scripts/start-worker-rtx4050.sh
+```
+
+La instalación pedirá **una sola vez** `WORKER_TOKEN`: cópialo desde
+Render > `sonora-api-vdnd` > Environment, sin compartirlo por chat y sin subirlo a GitHub.
+El archivo privado `worker/.env` está excluido del repositorio. El worker se conecta **saliente**
+por HTTPS directamente al servicio Render; no hay que abrir puertos ni exponer Windows.
+Mantén Git Bash abierto mientras quieras procesar solicitudes. Detén el worker con `Ctrl+C`.
+
+Con el perfil de 6 GB, **elige Personalizado y escribe una letra completa** (o genera música
+instrumental): el compositor de letras interno está apagado para ahorrar VRAM. El botón
+«Crear canción» se activará cuando la API reciba latidos reales del worker; solo entonces
+podrás probar la generación, reproducción y almacenamiento extremo a extremo.

@@ -8,3 +8,4 @@ storage
 worker/.venv
 worker/__pycache__
 __pycache__
+worker/.rtx4050.env

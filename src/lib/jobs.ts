@@ -27,6 +27,19 @@ async function assertWorkerAvailable(engine: string): Promise<void> {
   );
 }
 
+/** El perfil RTX 4050 sin LM solo puede cantar si recibe una letra explícita. */
+async function assertComposerAvailable(engine: string): Promise<void> {
+  const cutoff = new Date(Date.now() - WORKER_ONLINE_SECONDS * 1000);
+  const online = await db.select({ info: workers.info }).from(workers)
+    .where(and(eq(workers.engine, engine), gte(workers.lastSeenAt, cutoff)));
+  if (online.length > 0 && !online.some((w) => typeof w.info.lm === "string" && w.info.lm.length > 0)) {
+    throw new JobError(
+      "El motor conectado funciona sin compositor de letras para ahorrar VRAM. Cambia a Personalizado y escribe una letra, o elige Instrumental.",
+      422,
+    );
+  }
+}
+
 export class JobError extends Error {
   constructor(message: string, public status = 400) {
     super(message);
@@ -116,6 +129,8 @@ export async function createGenerateJobs(userId: string, input: GenerateInput) {
       } else needsCreateSample = true;
     }
   }
+
+  if (needsCreateSample) await assertComposerAvailable(ENGINE);
 
   const groupId = randomUUID();
   const params: GenerateJobParams = {

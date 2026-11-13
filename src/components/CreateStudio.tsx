@@ -50,6 +50,9 @@ export function CreateStudio({ initialPrompt = "" }: { initialPrompt?: string })
   const sections = useMemo(() => sectionsOf(lyrics), [lyrics]);
   const llm = system?.llm.configured ?? false;
   const langForLyrics = language === "auto" ? "es" : language;
+  const engineHasLm = system?.workers.some((w) => w.engine === system.engine && typeof w.info.lm === "string" && Boolean(w.info.lm)) ?? false;
+  const needsExternalComposer = vocalOn && (mode === "simple" || (mode === "custom" && !lyrics.trim()));
+  const missingComposer = system?.workerOnline === true && !llm && !engineHasLm && needsExternalComposer;
 
   const toggleInstrument = (id: string) =>
     setInstruments((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : cur.length < 8 ? [...cur, id] : cur));
@@ -256,11 +259,18 @@ export function CreateStudio({ initialPrompt = "" }: { initialPrompt?: string })
           </>
         )}
 
+        {missingComposer && (
+          <p className="rounded-xl border border-warn/40 bg-warn/10 p-3 text-sm text-warn" role="status">
+            Tu motor RTX 4050 está disponible, pero trabaja sin compositor de letras para ahorrar memoria.
+            Usa el modo Personalizado y escribe la letra, o selecciona Instrumental.
+          </p>
+        )}
+
         <Card className="flex flex-wrap items-center justify-between gap-4">
           <Field label="Variaciones independientes" className="!space-y-1">
             <div className="flex gap-2">{[1, 2].map((n) => <Chip key={n} active={variations === n} onClick={() => setVariations(n)}>{n === 1 ? "1 canción" : "2 variaciones"}</Chip>)}</div>
           </Field>
-          <Button type="submit" variant="primary" size="lg" loading={submitting} disabled={system?.workerOnline === false} className="min-w-48">
+          <Button type="submit" variant="primary" size="lg" loading={submitting} disabled={system?.workerOnline === false || missingComposer} className="min-w-48">
             <Disc3 className="h-5 w-5" />Crear canción
           </Button>
         </Card>

@@ -69,7 +69,7 @@ class AceStepEngine(MusicEngine):
         sys.path.insert(0, str(self.root))
         os.chdir(self.root)
         from acestep.handler import AceStepHandler  # type: ignore
-        from acestep.llm_inference import LLMHandler  # type: ignore
+        # En RTX 4050 de 6 GB no se carga el LM (reduce uso de VRAM).
 
         self._ensure_weights()
         offload = _bool("ACESTEP_OFFLOAD", False)
@@ -87,8 +87,10 @@ class AceStepEngine(MusicEngine):
         if not ok:
             raise SystemExit(f"No se pudo inicializar el DiT de ACE-Step: {status}")
 
-        self.llm = LLMHandler()
+        self.llm = None
         if self.lm_name.lower() != "none":
+            from acestep.llm_inference import LLMHandler  # type: ignore
+            self.llm = LLMHandler()
             log.info("Cargando LM %s (backend=%s)…", self.lm_name, self.lm_backend)
             status, ok = self.llm.initialize(
                 checkpoint_dir=str(self.root / "checkpoints"),
@@ -209,8 +211,8 @@ class AceStepEngine(MusicEngine):
                 thinking=self.llm_ok,
                 use_cot_caption=False,
                 use_cot_lyrics=False,
-                use_cot_metas=not bpm,
-                use_cot_language=lang == "unknown",
+                use_cot_metas=self.llm_ok and not bpm,
+                use_cot_language=self.llm_ok and lang == "unknown",
             )
         elif kind == "cover":
             if source is None:
