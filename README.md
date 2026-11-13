@@ -188,6 +188,7 @@ No se debe considerar completada la generación por IA hasta obtener y escuchar 
 ## Pruebas automáticas en GitHub
 
 El workflow `.github/workflows/ci.yml` ejecuta al hacer push a `main` o abrir un pull request:
-`npm ci`, ESLint, revisión TypeScript, compilación Next.js y pruebas Python del protocolo del worker.
-No requiere GPU para estas comprobaciones. Las pruebas de integración con PostgreSQL y la generación musical con ACE-Step
-se verifican por separado antes de declarar lista una instalación de producción.
+`npm ci`, ESLint, revisión TypeScript, compilación Next.js, pruebas Python del protocolo del worker y pruebas
+integrales de la API sobre PostgreSQL 16 (incluida recuperación simultánea de contraseña).
+No requiere GPU para estas comprobaciones. La generación musical real con ACE-Step
+se verifica por separado antes de declarar lista una instalación de producción.

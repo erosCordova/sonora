@@ -37,10 +37,10 @@ Para la primera prueba musical, prepara el worker como se indica allí y revisa 
 
 ## Mejoras para publicación en GitHub (noviembre de 2026)
 
-- Se añadió el workflow `.github/workflows/ci.yml` para verificar lint, TypeScript, compilación y pruebas del worker en cada push o pull request.
+- Se añadió el workflow `.github/workflows/ci.yml` para verificar lint, TypeScript, compilación, API con PostgreSQL y pruebas del worker en cada push o pull request.
 - Se corrigió un caso donde un fallo durante `engine.release()` podía derribar el worker después de procesar una canción. Ahora se registra el error y siempre se limpia el estado de la tarea.
 - La recuperación de contraseña ya no usa las cabeceras `Host` o `X-Forwarded-Host` para formar enlaces con tokens. Requiere `APP_URL` válida en producción.
 - El token de recuperación se consume atómicamente junto con el cambio de contraseña y el cierre de sesiones, impidiendo reutilización concurrente.
-- Se añadieron pruebas del worker para cancelación y fallos de limpieza.
+- Se añadieron pruebas del worker para cancelación y fallos de limpieza, y una prueba de integración para impedir el uso concurrente de un mismo token de recuperación.
 
 Las pruebas de integración completas requieren PostgreSQL local y el modelo ACE-Step real requiere una GPU disponible.

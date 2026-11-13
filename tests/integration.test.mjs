@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes, createHash } from "node:crypto";
 import pg from "pg";
 
 // Ejecutar solo contra un servidor y una base de datos de prueba propios.
@@ -102,6 +102,56 @@ test("usuarios, cola, reintentos y resultados concurrentes", { skip: !base || !d
     for (const cookie of users) {
       await request("/api/profile", { method: "DELETE", cookie, json: { password } }).catch(() => {});
     }
+    await db.end();
+  }
+});
+
+
+test("recuperación: token de un solo uso incluso ante peticiones simultáneas", { skip: !base || !dbUrl || !token }, async () => {
+  const email = `reset-${randomUUID()}@example.test`;
+  const originalPassword = "Clave-original-123";
+  const newPasswords = ["Clave-nueva-a-123", "Clave-nueva-b-123"];
+  const db = new pg.Client({ connectionString: dbUrl });
+  await db.connect();
+  try {
+    const register = await fetch(`${base}/api/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Recuperación de prueba", email, password: originalPassword }),
+    });
+    assert.equal(register.status, 200);
+    const cookie = register.headers.get("set-cookie")?.split(";")[0];
+    assert.ok(cookie);
+    const tokenRaw = randomBytes(32).toString("hex");
+    const tokenHash = createHash("sha256").update(tokenRaw).digest("hex");
+    await db.query(
+      `INSERT INTO password_resets (id, user_id, expires_at)
+       SELECT $1, id, now() + interval '1 hour' FROM users WHERE email = $2`,
+      [tokenHash, email],
+    );
+
+    const responses = await Promise.all(newPasswords.map((password) => fetch(`${base}/api/auth/reset`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: tokenRaw, password }),
+    })));
+    assert.deepEqual(responses.map((r) => r.status).sort(), [200, 400]);
+    assert.equal((await fetch(`${base}/api/jobs`, { headers: { Cookie: cookie } })).status, 401);
+    assert.equal((await fetch(`${base}/api/auth/reset`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token: tokenRaw, password: "Intento-repetido-123" }),
+    })).status, 400);
+
+    const winningPassword = newPasswords[responses.findIndex((r) => r.status === 200)];
+    const login = await fetch(`${base}/api/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password: winningPassword }),
+    });
+    assert.equal(login.status, 200);
+  } finally {
+    await db.query("DELETE FROM users WHERE email = $1", [email]);
     await db.end();
   }
 });

@@ -40,3 +40,53 @@ jobs:
       - run: python -m unittest discover -s tests -p 'test_*.py' -v
         env:
           WORKER_TOKEN: github-actions-token-de-prueba
+
+  integration:
+    name: API + PostgreSQL - pruebas integrales
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sonora_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sonora_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/sonora_test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/sonora_test
+      TEST_BASE_URL: http://127.0.0.1:3000
+      APP_URL: http://localhost:3000
+      APP_SECRET: github-actions-app-secret-de-prueba-no-publicar
+      WORKER_TOKEN: github-actions-token-de-prueba
+      COOKIE_SECURE: 'false'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Preparar esquema de prueba
+        run: npx drizzle-kit push
+      - run: npm run build
+      - name: Iniciar aplicación y comprobar salud
+        run: |
+          npm run start >/tmp/sonora-ci.log 2>&1 &
+          for attempt in $(seq 1 45); do
+            if curl --fail --silent http://127.0.0.1:3000/api/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat /tmp/sonora-ci.log
+          exit 1
+      - name: Probar API, aislamiento de usuarios y cola
+        run: npm run test:integration
