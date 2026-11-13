@@ -91,20 +91,13 @@ PostgreSQL debe estar instalado, en ejecución y contener la base de datos indic
 `setup` no modifica un `.env` existente. Copia el `WORKER_TOKEN` creado en `.env` a `worker/.env`.
 Para una instalación nueva puedes usar Docker, como se explica más abajo.
 
-### Windows 11 y Smart App Control: opción gráfica sin terminal
+### Conectar ComfyUI Desktop a Sonora sin terminal (Windows 11 + RTX 4050)
 
-Si Windows bloquea instaladores descargados de Internet con **Control Inteligente de Aplicaciones (Smart App Control)**, **no lo desactives**. El iniciador experimental `Instalar-Sonora-RTX4050.cmd` se retiró tras comprobar que Windows lo bloquea. Un ejecutable nuevo **sin firma digital confiable** podría sufrir lo mismo.
+Sonora dispone de un **complemento local para ComfyUI Desktop** dentro de este repositorio. Conecta un flujo nativo ACE-Step 1.5 Turbo AIO a la cola de Sonora mediante `WORKER_TOKEN` y sube los MP3 auténticos a la biblioteca del usuario.
 
-Para probar música **en la GPU local**, sin escribir comandos, existe una alternativa gráfica oficial:
+La integración está publicada y sus funciones se han comprobado con pruebas automatizadas, **pero todavía no se ha ejecutado música real en la RTX 4050 del usuario**. ComfyUI Desktop debe instalarse y autorizarse en Windows y puede ser bloqueado por Smart App Control; no desactives esta protección ni fuerces instaladores desconocidos. Por ahora solo se admiten nuevas canciones con letra explícita o instrumentales, no cover/repaint ni composición automática.
 
-1. Abre [ComfyUI Desktop, descarga oficial](https://comfy.org/download/) y revisa el editor de la instalación.
-2. Instala ComfyUI Desktop mediante su asistente visual (Windows + NVIDIA). Si Smart App Control lo bloquea, **no fuerces la instalación**.
-3. Dentro de ComfyUI, abre **Template Library → Audio → ACE-Step 1.5**, descarga los modelos que solicite el flujo y prueba una canción **con letra personalizada**. La descarga puede requerir varios GB y la RTX 4050 de 6 GB puede necesitar reducción de memoria o duración.
-4. Esta prueba **funciona dentro de ComfyUI**, **no dentro de Sonora**: integrar ComfyUI como worker de Sonora es una tarea independiente que aún debe desarrollarse y validarse.
-
-**Estado actual:** Render/Vercel gestionan la interfaz, cuentas y cola de Sonora, pero no tienen GPU; el botón «Crear canción» seguirá desactivado hasta conectar un worker real y recibir su latido. No afirmamos que ComfyUI Desktop o sus componentes PyTorch sean siempre admitidos por Smart App Control; puede bloquear también librerías de terceros.
-
-[Documentación detallada y límites de esta alternativa](docs/INSTALACION_GRAFICA_WINDOWS.md).
+**[Guía de instalación gráfica y conexión en ComfyUI](docs/SONORA_COMFYUI_BRIDGE.md)** — no requiere escribir comandos, sí instalar la aplicación y pegar una sola vez el token privado de Render en el panel «♫ Sonora».
 
 ### Worker de IA (en la máquina con GPU)
 
