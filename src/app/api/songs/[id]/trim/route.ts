@@ -4,7 +4,7 @@ import { songs } from "@/db/schema";
 import { jsonError, withUser } from "@/lib/http";
 import { limited, rateLimit } from "@/lib/ratelimit";
 import { getOwnedSong, serializeSong } from "@/lib/songs";
-import { putObject, sniffAudio, wavDuration } from "@/lib/storage";
+import { putObject, sniffAudio, wavDuration, StorageQuotaError, removeObject } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 const MAX_BYTES = 80 * 1024 * 1024;
@@ -39,8 +39,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
   const newId = randomUUID();
   const key = `${a.user.id}/${newId}.wav`;
-  await putObject(key, buf);
-  const [song] = await db
+  try {
+    await putObject(key, buf);
+  } catch (e) {
+    if (e instanceof StorageQuotaError) return jsonError(e.message, 413);
+    throw e;
+  }
+  let song;
+  try {
+    [song] = await db
     .insert(songs)
     .values({
       id: newId,
@@ -67,5 +74,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       coverSeed: randomBytes(6).toString("hex"),
     })
     .returning();
+  } catch (e) {
+    await removeObject(key).catch(() => {});
+    throw e;
+  }
   return Response.json({ song: serializeSong(song, a.user.id) }, { status: 201 });
 }

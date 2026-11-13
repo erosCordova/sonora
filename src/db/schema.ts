@@ -1,5 +1,6 @@
 import {
   type AnyPgColumn,
+  customType,
   boolean,
   index,
   integer,
@@ -133,3 +134,16 @@ export const workers = pgTable("workers", {
 export type User = typeof users.$inferSelect;
 export type Song = typeof songs.$inferSelect;
 export type Job = typeof jobs.$inferSelect;
+
+// Almacenamiento temporal en PostgreSQL para alojamientos sin disco persistente.
+// Migrar a un almacenamiento de objetos antes de ampliar la biblioteca musical.
+const audioBytes = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType() { return "bytea"; },
+});
+
+export const audioObjects = pgTable("audio_objects", {
+  key: text("key").primaryKey(),
+  bytes: integer("bytes").notNull(),
+  content: audioBytes("content").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

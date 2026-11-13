@@ -4,9 +4,23 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 
-// Almacenamiento persistente de audio.
-// Driver actual: disco local (STORAGE_DIR). Debe montarse como volumen persistente
-// en producción. La interfaz (put/stat/stream/remove) permite reemplazarlo por S3/Supabase.
+// Dos almacenamientos compatibles: filesystem (volumen persistente) y PostgreSQL
+// (base gratuita de tamaño limitado, sin disco persistente en el servidor web).
+// Nunca guardar audios solo en el disco efímero de Render Free.
+import { Readable } from "node:stream";
+import { eq } from "drizzle-orm";
+import { db, pool } from "@/db";
+import { audioObjects } from "@/db/schema";
+
+export class StorageQuotaError extends Error {
+  constructor(message: string) { super(message); this.name = "StorageQuotaError"; }
+}
+
+export function storageBackend() {
+  const mode = process.env.STORAGE_BACKEND ?? "filesystem";
+  if (mode !== "filesystem" && mode !== "postgres") throw new Error("STORAGE_BACKEND debe ser filesystem o postgres");
+  return mode;
+}
 
 const root = () => path.resolve(/* turbopackIgnore: true */ process.env.STORAGE_DIR ?? "./storage");
 
@@ -17,6 +31,15 @@ function safePath(key: string) {
 }
 
 export async function putObject(key: string, data: Buffer) {
+  safePath(key); // valida rutas incluso cuando el driver es PostgreSQL
+  if (storageBackend() === "postgres") {
+    // Render Postgres Free dispone de 1 GB para TODA la base de datos.
+    const maxBytes = Number(process.env.POSTGRES_AUDIO_MAX_BYTES ?? 50 * 1024 * 1024);
+    if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new Error("POSTGRES_AUDIO_MAX_BYTES inválido");
+    if (data.byteLength > maxBytes) throw new StorageQuotaError(`Audio de ${Math.ceil(data.byteLength / 1048576)} MB: máximo configurado ${Math.floor(maxBytes / 1048576)} MB. Reduce la duración o usa almacenamiento de objetos.`);
+    await db.insert(audioObjects).values({ key, bytes: data.byteLength, content: data });
+    return;
+  }
   const full = safePath(key);
   await fsp.mkdir(path.dirname(full), { recursive: true });
   const tmp = `${full}.tmp-${process.pid}-${Date.now()}`;
@@ -24,23 +47,53 @@ export async function putObject(key: string, data: Buffer) {
   await fsp.rename(tmp, full);
 }
 
-export async function statObject(key: string) {
+export async function statObject(key: string): Promise<{ size: number } | null> {
+  safePath(key);
+  if (storageBackend() === "postgres") {
+    const [row] = await db.select({ size: audioObjects.bytes }).from(audioObjects).where(eq(audioObjects.key, key)).limit(1);
+    return row ?? null;
+  }
   try {
-    return await fsp.stat(/* turbopackIgnore: true */ safePath(key));
-  } catch {
-    return null;
+    const st = await fsp.stat(/* turbopackIgnore: true */ safePath(key));
+    return { size: st.size };
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw e;
   }
 }
 
-export function streamObject(key: string, start?: number, end?: number) {
+export async function streamObject(key: string, start?: number, end?: number) {
+  safePath(key);
+  if (storageBackend() === "postgres") {
+    // Solo se recupera el rango solicitado para no copiar un WAV completo en cada seek.
+    const from = Math.max(0, start ?? 0);
+    const length = end === undefined ? null : Math.max(0, end - from + 1);
+    const result = await pool.query<{ content: Buffer }>(
+      "SELECT substring(content FROM $2::integer FOR COALESCE($3::integer, bytes)) AS content FROM audio_objects WHERE key = $1",
+      [key, from + 1, length],
+    );
+    if (!result.rows[0]) throw new Error("Audio no encontrado en PostgreSQL");
+    return Readable.from([result.rows[0].content]);
+  }
   return fs.createReadStream(/* turbopackIgnore: true */ safePath(key), { start, end });
 }
 
 export async function readObject(key: string) {
+  safePath(key);
+  if (storageBackend() === "postgres") {
+    const [row] = await db.select({ content: audioObjects.content }).from(audioObjects).where(eq(audioObjects.key, key)).limit(1);
+    if (!row) throw new Error("Audio no encontrado en PostgreSQL");
+    return row.content;
+  }
   return fsp.readFile(/* turbopackIgnore: true */ safePath(key));
 }
 
 export async function removeObject(key: string) {
+  safePath(key);
+  if (storageBackend() === "postgres") {
+    await db.delete(audioObjects).where(eq(audioObjects.key, key));
+    return;
+  }
   await fsp.rm(/* turbopackIgnore: true */ safePath(key), { force: true });
 }
 

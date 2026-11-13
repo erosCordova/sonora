@@ -61,6 +61,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/sonora_test
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/sonora_test
+      STORAGE_BACKEND: postgres
       TEST_BASE_URL: http://127.0.0.1:3000
       APP_URL: http://localhost:3000
       APP_SECRET: github-actions-app-secret-de-prueba-no-publicar

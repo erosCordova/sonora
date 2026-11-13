@@ -27,4 +27,4 @@ ENV STORAGE_DIR=/data/storage
 VOLUME ["/data/storage"]
 EXPOSE 3000
 ENTRYPOINT ["./docker-entrypoint.sh"]
-CMD ["npm", "run", "start"]
+CMD ["sh", "-c", "exec npm run start -- -H 0.0.0.0 -p ${PORT:-3000}"]

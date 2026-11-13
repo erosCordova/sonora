@@ -47,8 +47,8 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     }
     headers.set("Content-Range", `bytes ${start}-${end}/${size}`);
     headers.set("Content-Length", String(end - start + 1));
-    return new Response(Readable.toWeb(streamObject(song.audioKey, start, end)) as ReadableStream, { status: 206, headers });
+    return new Response(Readable.toWeb(await streamObject(song.audioKey, start, end)) as ReadableStream, { status: 206, headers });
   }
   headers.set("Content-Length", String(size));
-  return new Response(Readable.toWeb(streamObject(song.audioKey)) as ReadableStream, { status: 200, headers });
+  return new Response(Readable.toWeb(await streamObject(song.audioKey)) as ReadableStream, { status: 200, headers });
 }

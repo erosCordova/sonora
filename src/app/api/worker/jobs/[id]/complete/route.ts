@@ -5,6 +5,7 @@ import { jobs } from "@/db/schema";
 import { checkWorker, jsonError } from "@/lib/http";
 import { finalizeJob, JobError } from "@/lib/jobs";
 import { readWorkerLease } from "@/lib/worker-lease";
+import { StorageQuotaError } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -54,6 +55,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return Response.json({ ok: true, songId: song.id });
   } catch (e) {
     if (e instanceof JobError) return jsonError(e.message, e.status);
+    if (e instanceof StorageQuotaError) return jsonError(e.message, 413);
     console.error("[worker] complete failed", e);
     return jsonError("Error guardando el resultado", 500);
   }

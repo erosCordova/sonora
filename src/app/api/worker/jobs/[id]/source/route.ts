@@ -22,7 +22,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   if (!song) return jsonError("Audio fuente eliminado", 410);
   const st = await statObject(song.audioKey);
   if (!st) return jsonError("Archivo fuente no encontrado", 410);
-  return new Response(Readable.toWeb(streamObject(song.audioKey)) as ReadableStream, {
+  return new Response(Readable.toWeb(await streamObject(song.audioKey)) as ReadableStream, {
     headers: { "Content-Type": song.audioMime, "Content-Length": String(st.size) },
   });
 }

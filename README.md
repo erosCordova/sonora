@@ -147,6 +147,30 @@ Despliegue público recomendado:
 3. Si despliegas el frontend en Vercel, la API y las rutas con ficheros deben seguir en un servidor persistente.
 4. El limitador de tasa es en memoria (por proceso); con varias réplicas web, cámbialo por Redis.
 
+### Despliegue gratuito de comprobación: Render + Vercel
+
+La aplicación **no se divide en dos servidores Next.js**: el backend, las páginas protegidas,
+los audios y las rutas de eventos necesitan compartir sesiones y almacenamiento. Por ello,
+Render aloja la aplicación completa y Vercel proporciona la URL pública como proxy HTTPS
+mediante `vercel-proxy/vercel.json`. El worker GPU apunta directamente al servicio Render
+para evitar límites de subida del proxy. El almacenamiento usa `STORAGE_BACKEND=postgres`
+para que reiniciar Render Free **no borre las canciones**. En local, `filesystem` sigue siendo el predeterminado.
+
+- `render.yaml`: web Docker plan Free, esquema de PostgreSQL al iniciar, claves aleatorias gestionadas
+  por Render, y `DATABASE_URL` referenciada a la base existente `sonora-db` (no se almacena contraseña en Git).
+- `vercel-proxy/`: proyecto Vercel sin framework ni dependencias, con rewrite hacia la aplicación en Render.
+- El Render Free Postgres **es temporal** (30 días, 1 GB, sin copias de seguridad).
+  No es almacenamiento duradero de producción. **Exporta datos y migra a una BD estable antes de que caduque.**
+  La web Free tampoco tiene disco persistente; no uses `filesystem` en Render Free.
+- En modo PostgreSQL cada audio se limita inicialmente a **50 MiB** (`POSTGRES_AUDIO_MAX_BYTES`).
+  Almacenar canciones largas o muchas canciones puede llenar la base. Para producción,
+  cambia a un proveedor de almacenamiento de objetos y una base de datos duradera.
+- **Render y Vercel no incluyen GPU gratuita para inferencia ACE-Step**: sin worker
+  compatible no habrá canciones generadas, aunque la web y su API estén en línea.
+  La cola y el panel indican el estado real; no se crean canciones de demostración.
+- Si se usa un proxy Vercel, la URL de recuperación de contraseña `APP_URL` debe apuntar
+  al dominio realmente público y SMTP debe configurarse para enviar correos.
+
 ## Limitaciones reales (léelas antes de abrirlo al público)
 
 * Sin un worker y los pesos descargados no hay generación. Los recursos gratuitos con GPU pueden tener límites de

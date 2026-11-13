@@ -86,12 +86,21 @@ test("usuarios, cola, reintentos y resultados concurrentes", { skip: !base || !d
     const uploads = await Promise.all([1, 2].map(() => request(completePath, { method: "POST", headers: workerHeaders(w2, 2), form: resultForm() })));
     assert.deepEqual(uploads.map((r) => r.response.status).sort(), [200, 409]);
     const songId = uploads.find((r) => r.response.status === 200).data.songId;
+    if (process.env.STORAGE_BACKEND === "postgres") {
+      const stored = await db.query("SELECT bytes, octet_length(content) AS actual FROM audio_objects WHERE key LIKE $1", [`%/${songId}.wav`]);
+      assert.equal(stored.rowCount, 1, "El audio debe persistir en PostgreSQL");
+      assert.equal(stored.rows[0].bytes, wave().byteLength);
+      assert.equal(stored.rows[0].actual, wave().byteLength);
+    }
     const ownSongs = await request("/api/songs?scope=mine", { cookie: users[0] });
     assert.equal(ownSongs.data.songs.length, 1);
     assert.equal((await request(`/api/songs/${songId}`, { cookie: users[1] })).response.status, 404);
     const audio = await request(`/api/songs/${songId}/audio`, { cookie: users[0], headers: { Range: "bytes=0-127" } });
     assert.equal(audio.response.status, 206);
     assert.equal(audio.data.byteLength, 128);
+    const suffix = await request(`/api/songs/${songId}/audio`, { cookie: users[0], headers: { Range: "bytes=-64" } });
+    assert.equal(suffix.response.status, 206);
+    assert.equal(suffix.data.byteLength, 64);
 
     const second = await createJob(users[0]);
     assert.equal((await claim(w1)).data.job.id, second.id);

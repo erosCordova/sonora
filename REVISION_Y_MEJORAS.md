@@ -44,3 +44,14 @@ Para la primera prueba musical, prepara el worker como se indica allí y revisa 
 - Se añadieron pruebas del worker para cancelación y fallos de limpieza, y una prueba de integración para impedir el uso concurrente de un mismo token de recuperación.
 
 Las pruebas de integración completas requieren PostgreSQL local y el modelo ACE-Step real requiere una GPU disponible.
+
+## Despliegue gratuito — avance posterior
+
+- Añadido driver de audios PostgreSQL `STORAGE_BACKEND=postgres`, para evitar perder canciones
+  cuando se reinicia Render Free (el disco de la web es efímero).
+- Añadidos límites de tamaño por canción y lecturas eficientes por rangos para reproducción.
+- Las pruebas de integración ahora validan bytes guardados y peticiones Range/sufijo.
+- Adaptado Docker a `PORT` y preparado `render.yaml` con secretos generados y
+  referencia a una base existente, más `vercel-proxy/vercel.json`.
+- **Advertencia**: Render Free Postgres expira a los 30 días y no hace respaldos;
+  ningún despliegue sin GPU debe anunciar generación musical real.
