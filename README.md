@@ -91,11 +91,20 @@ PostgreSQL debe estar instalado, en ejecución y contener la base de datos indic
 `setup` no modifica un `.env` existente. Copia el `WORKER_TOKEN` creado en `.env` a `worker/.env`.
 Para una instalación nueva puedes usar Docker, como se explica más abajo.
 
-### Windows 11 + RTX 4050: iniciar sin escribir comandos
+### Windows 11 y Smart App Control: opción gráfica sin terminal
 
-Descarga [**Instalar-Sonora-RTX4050.cmd**](https://github.com/erosCordova/sonora/blob/main/Instalar-Sonora-RTX4050.cmd) y ejecútalo con doble clic en tu laptop con Git for Windows instalado. La primera vez descarga este repositorio, comprueba la RTX 4050, prepara Python/CUDA y ACE-Step con perfil de 6 GB y pide **por pantalla** el `WORKER_TOKEN` privado de Render (Environment del servicio). El token permanece en `%LOCALAPPDATA%\Sonora-GPU\sonora\worker\.env`, no se publica en Git. Para iniciar el motor otra vez, ejecuta el mismo archivo; deja abierta la ventana del proceso mientras quieras generar canciones.
+Si Windows bloquea instaladores descargados de Internet con **Control Inteligente de Aplicaciones (Smart App Control)**, **no lo desactives**. El iniciador experimental `Instalar-Sonora-RTX4050.cmd` se retiró tras comprobar que Windows lo bloquea. Un ejecutable nuevo **sin firma digital confiable** podría sufrir lo mismo.
 
-Esto **no proporciona control remoto sobre tu PC** ni inicia la GPU sin tu autorización. El script descarga varios GB de dependencias y pesos; deja suficiente espacio de disco. El modo configurado usa `ACESTEP_LM_MODEL=none`: para la primera canción utiliza **Personalizado**, escribe una letra y selecciona una duración corta. La compatibilidad final de ACE-Step en tu equipo se confirma cuando el motor arranca, registra un latido en Sonora y produce un audio real.
+Para probar música **en la GPU local**, sin escribir comandos, existe una alternativa gráfica oficial:
+
+1. Abre [ComfyUI Desktop, descarga oficial](https://comfy.org/download/) y revisa el editor de la instalación.
+2. Instala ComfyUI Desktop mediante su asistente visual (Windows + NVIDIA). Si Smart App Control lo bloquea, **no fuerces la instalación**.
+3. Dentro de ComfyUI, abre **Template Library → Audio → ACE-Step 1.5**, descarga los modelos que solicite el flujo y prueba una canción **con letra personalizada**. La descarga puede requerir varios GB y la RTX 4050 de 6 GB puede necesitar reducción de memoria o duración.
+4. Esta prueba **funciona dentro de ComfyUI**, **no dentro de Sonora**: integrar ComfyUI como worker de Sonora es una tarea independiente que aún debe desarrollarse y validarse.
+
+**Estado actual:** Render/Vercel gestionan la interfaz, cuentas y cola de Sonora, pero no tienen GPU; el botón «Crear canción» seguirá desactivado hasta conectar un worker real y recibir su latido. No afirmamos que ComfyUI Desktop o sus componentes PyTorch sean siempre admitidos por Smart App Control; puede bloquear también librerías de terceros.
+
+[Documentación detallada y límites de esta alternativa](docs/INSTALACION_GRAFICA_WINDOWS.md).
 
 ### Worker de IA (en la máquina con GPU)
 
