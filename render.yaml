@@ -21,7 +21,7 @@ services:
       - key: WORKER_TOKEN
         generateValue: true
       - key: APP_URL
-        value: https://sonora-api.onrender.com
+        value: https://sonora-tan-three.vercel.app
       - key: COOKIE_SECURE
         value: "true"
       - key: STORAGE_BACKEND
