@@ -12,6 +12,7 @@ export function JobsDock() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const activeCount = useJobs((s) => s.jobs.filter((j) => j.status === "pending" || j.status === "running").length);
+  const workerOnline = useJobs((s) => s.system?.workerOnline);
   const hasTrack = usePlayer((s) => s.index >= 0);
   if (activeCount === 0 || pathname.startsWith("/create")) return null;
   return (
@@ -22,8 +23,10 @@ export function JobsDock() {
         </div>
       )}
       <button onClick={() => setOpen(!open)} className="ml-auto flex items-center gap-2 rounded-full border border-line bg-surface px-4 py-2.5 text-sm font-medium shadow-xl">
-        <Loader2 className="h-4 w-4 animate-spin text-brand" />
-        {activeCount} {activeCount === 1 ? "canción en proceso" : "canciones en proceso"}
+        <Loader2 className={`h-4 w-4 text-brand ${workerOnline ? "animate-spin" : ""}`} />
+        {workerOnline
+          ? `${activeCount} ${activeCount === 1 ? "canción en proceso" : "canciones en proceso"}`
+          : `${activeCount} ${activeCount === 1 ? "canción pendiente · sin motor" : "canciones pendientes · sin motor"}`}
         {open ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
       </button>
     </div>

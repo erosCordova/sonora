@@ -260,7 +260,7 @@ export function CreateStudio({ initialPrompt = "" }: { initialPrompt?: string })
           <Field label="Variaciones independientes" className="!space-y-1">
             <div className="flex gap-2">{[1, 2].map((n) => <Chip key={n} active={variations === n} onClick={() => setVariations(n)}>{n === 1 ? "1 canción" : "2 variaciones"}</Chip>)}</div>
           </Field>
-          <Button type="submit" variant="primary" size="lg" loading={submitting} className="min-w-48">
+          <Button type="submit" variant="primary" size="lg" loading={submitting} disabled={system?.workerOnline === false} className="min-w-48">
             <Disc3 className="h-5 w-5" />Crear canción
           </Button>
         </Card>
@@ -301,7 +301,10 @@ export function StatusCard() {
           {w.busy ? "Creando otra canción" : "Listo para crear"} · {String(info.model ?? s.engine)}
         </p>
       ) : (
-        <p className="text-xs text-muted">Las canciones esperarán en cola hasta que el motor vuelva a estar disponible.</p>
+        <div className="space-y-2 text-xs text-muted">
+          <p>La web está disponible, pero ACE-Step no está ejecutándose. Sin un worker con GPU no se pueden crear canciones; no se enviarán nuevas solicitudes a una cola sin motor.</p>
+          <p><a className="font-medium text-brand underline underline-offset-2" href="https://huggingface.co/spaces/ACE-Step/Ace-Step-v1.5" target="_blank" rel="noopener noreferrer">Probar ACE-Step gratis en Hugging Face (con límites diarios)</a>. Esta prueba es externa y no se guarda automáticamente en Sonora.</p>
+        </div>
       )}
       <p className="text-xs text-muted">En cola: {s.queued} · En ejecución: {s.running}</p>
     </Card>

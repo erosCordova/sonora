@@ -30,3 +30,5 @@ services:
         value: "52428800"
       - key: NEXT_TELEMETRY_DISABLED
         value: "1"
+      - key: REQUIRE_ONLINE_WORKER
+        value: "true"

@@ -77,7 +77,7 @@ export function JobRow({ job }: { job: JobDTO }) {
           {job.status === "pending" && system && !system.workerOnline && (
             <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-warn/10 px-2.5 py-1.5 text-xs text-warn">
               <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
-              El motor musical está desconectado. La canción comenzará cuando vuelva a estar disponible.
+              No hay un worker musical conectado. Esta tarea no avanzará hasta instalar y activar ACE-Step en una máquina compatible; puedes cancelarla.
             </p>
           )}
           {job.status === "pending" && job.error && <p className="mt-2 text-xs text-warn">Último error: {job.error}</p>}

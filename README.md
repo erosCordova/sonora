@@ -216,3 +216,17 @@ El workflow `.github/workflows/ci.yml` ejecuta al hacer push a `main` o abrir un
 integrales de la API sobre PostgreSQL 16 (incluida recuperación simultánea de contraseña).
 No requiere GPU para estas comprobaciones. La generación musical real con ACE-Step
 se verifica por separado antes de declarar lista una instalación de producción.
+
+### Solicitudes con el motor desconectado (producción)
+
+En producción configura `REQUIRE_ONLINE_WORKER=true` (habilitado en `render.yaml`).
+La API rechaza con HTTP 503 nuevas tareas si ningún worker del motor seleccionado
+ha enviado un latido en los últimos 30 segundos. Así no se consume cuota ni
+se acumulan solicitudes que no podrán generar audio. Las tareas antiguas en cola
+no se borran automáticamente; cada usuario puede cancelarlas.
+
+Esto **no instala una GPU**: para generar canciones originales con Sonora debes
+arrancar `worker/worker.py` en una máquina con GPU, con `SONORA_API_URL` y
+`WORKER_TOKEN` configurados. El demo oficial de ACE-Step en Hugging Face ZeroGPU
+permite probar el modelo por separado con cuotas y sin conexión a la biblioteca
+de Sonora. No se ofrece música de demostración como si fuera un resultado.

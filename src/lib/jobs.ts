@@ -15,6 +15,18 @@ const MAX_PER_DAY = Number(process.env.MAX_JOBS_PER_DAY ?? 40);
 const STALE_SECONDS = 120;
 const WORKER_ONLINE_SECONDS = 30;
 
+/** Comprueba un heartbeat RECIENTE del motor exacto antes de aceptar tareas nuevas. */
+async function assertWorkerAvailable(engine: string): Promise<void> {
+  if (process.env.REQUIRE_ONLINE_WORKER !== "true") return;
+  const cutoff = new Date(Date.now() - WORKER_ONLINE_SECONDS * 1000);
+  const [available] = await db.select({ id: workers.id }).from(workers)
+    .where(and(eq(workers.engine, engine), gte(workers.lastSeenAt, cutoff))).limit(1);
+  if (!available) throw new JobError(
+    "No hay un motor musical conectado. Tu canción no se ha enviado a la cola. Activa un worker ACE-Step antes de intentarlo de nuevo.",
+    503,
+  );
+}
+
 export class JobError extends Error {
   constructor(message: string, public status = 400) {
     super(message);
@@ -58,6 +70,7 @@ export interface GenerateJobParams {
 }
 
 export async function createGenerateJobs(userId: string, input: GenerateInput) {
+  await assertWorkerAvailable(ENGINE);
   await assertQuota(userId, input.variations);
   const instrumental = input.vocal === "instrumental";
   const llm = llmConfig().configured;
@@ -147,6 +160,7 @@ export async function createEditJobs(userId: string, input: EditInput) {
     .where(and(eq(songs.id, input.songId), eq(songs.userId, userId)))
     .limit(1);
   if (!song) throw new JobError("Canción no encontrada", 404);
+  await assertWorkerAvailable(song.engine || ENGINE);
   const n = input.operation === "variation" ? input.variations : 1;
   await assertQuota(userId, n);
 
