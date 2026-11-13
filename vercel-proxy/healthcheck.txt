@@ -1,0 +1,2 @@
+sonora-vercel-proxy-static-anchor
+Este archivo permite generar una salida estática en Vercel. El sitio y las API se reescriben hacia Render.
