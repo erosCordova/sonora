@@ -93,6 +93,12 @@ def build_workflow(params: dict, checkpoint=DEFAULT_CHECKPOINT, seed=None, job_i
     if language in ("auto", "unknown", ""):
         language = "es"
     seed = seed if seed is not None else random.SystemRandom().randint(1, 2**31 - 1)
+    # El nodo ACE-Step 1.5 acepta solo tonalidades de su lista cerrada.
+    # Antes se enviaba una cadena vacía y ComfyUI rechazaba TODO el flujo (HTTP 400).
+    keys = ("C", "C#", "Db", "D", "D#", "Eb", "E", "F", "F#", "Gb", "G", "G#", "Ab", "A", "A#", "Bb", "B")
+    valid_keys = {f"{root} {quality}" for root in keys for quality in ("major", "minor")}
+    requested_key = str(params.get("keyscale") or "").strip()
+    keyscale = requested_key if requested_key in valid_keys else "C major"
     prefix = f"audio/sonora_{str(job_id).replace('-', '')[:24]}" if job_id else "audio/sonora"
     return {
       "3": {"class_type": "KSampler", "inputs": {"cfg": 1, "denoise": 1, "latent_image": ["98", 0],
@@ -103,7 +109,7 @@ def build_workflow(params: dict, checkpoint=DEFAULT_CHECKPOINT, seed=None, job_i
       "78": {"class_type": "ModelSamplingAuraFlow", "inputs": {"model": ["97", 0], "sampling": "flow", "shift": 3}},
       "94": {"class_type": "TextEncodeAceStepAudio1.5", "inputs": {
           "bpm": bpm, "cfg_scale": 2, "clip": ["97", 1], "duration": seconds,
-          "generate_audio_codes": True, "keyscale": "", "language": language, "lyrics": lyrics,
+          "generate_audio_codes": True, "keyscale": keyscale, "language": language, "lyrics": lyrics,
           "min_p": 0, "seed": seed, "tags": caption, "temperature": 0.85,
           "timesignature": "4", "top_k": 0, "top_p": 0.9}},
       "97": {"class_type": "CheckpointLoaderSimple", "inputs": {"ckpt_name": checkpoint}},

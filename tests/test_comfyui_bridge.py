@@ -14,6 +14,7 @@ class ComfyUIBridgeTest(unittest.TestCase):
         graph = build_workflow(p, checkpoint="ace_step_1.5_turbo_aio.safetensors", seed=2026, job_id="abc-123")
         self.assertEqual(graph["94"]["inputs"]["language"], "es")
         self.assertEqual(graph["94"]["inputs"]["bpm"], 95)
+        self.assertEqual(graph["94"]["inputs"]["keyscale"], "C major")
         self.assertEqual(graph["94"]["inputs"]["tags"], "pop rock romántico")
         self.assertEqual(graph["3"]["inputs"]["seed"], 2026)
         self.assertEqual(graph["98"]["inputs"]["seconds"], 45)
@@ -27,6 +28,13 @@ class ComfyUIBridgeTest(unittest.TestCase):
             build_workflow({"caption": "Rock", "needsCreateSample": True})
         with self.assertRaisesRegex(BridgeError, "letra"):
             build_workflow({"caption": "Rock", "lyrics": ""})
+
+    def test_keyscale_always_uses_valid_comfyui_option(self):
+        base = {"caption": "pop latino", "lyrics": "[Verse]\\nHola"}
+        self.assertEqual(build_workflow(base)["94"]["inputs"]["keyscale"], "C major")
+        self.assertEqual(build_workflow({**base, "keyscale": ""})["94"]["inputs"]["keyscale"], "C major")
+        self.assertEqual(build_workflow({**base, "keyscale": "E minor"})["94"]["inputs"]["keyscale"], "E minor")
+        self.assertEqual(build_workflow({**base, "keyscale": "no-valida"})["94"]["inputs"]["keyscale"], "C major")
 
     def test_instrumental(self):
         g=build_workflow({"caption": "ambient", "lyrics": "", "instrumental": True, "duration": 30},seed=123)
