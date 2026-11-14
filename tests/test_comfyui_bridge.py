@@ -78,6 +78,29 @@ class ComfyUIBridgeTest(unittest.TestCase):
             self.assertTrue(b.status()["configured"])
             self.assertNotIn("secreto-super-privado", str(b.status()))
 
+    def test_decodes_real_mp3_with_pyav(self):
+        """Prueba un MP3 auténtico: 2 segundos, sin ffprobe ni soundfile."""
+        import shutil
+        import subprocess
+        import sys
+        try:
+            import av  # noqa: F401
+        except ImportError:
+            self.skipTest("PyAV no está instalado en este entorno")
+        executable = shutil.which("ffmpeg")
+        if not executable:
+            self.skipTest("ffmpeg no disponible para generar el MP3 de prueba")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "prueba.mp3"
+            subprocess.run([executable, "-hide_banner", "-loglevel", "error",
+                "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+                "-codec:a", "libmp3lame", "-q:a", "5", str(path)],
+                check=True, timeout=30)
+            self.assertGreater(path.stat().st_size, 1000)
+            with patch("comfyui_bridge.worker.shutil.which", return_value=None), \
+                 patch.dict(sys.modules, {"soundfile": None}):
+                self.assertAlmostEqual(_duration(path), 2.0, delta=0.2)
+
     def test_duration_uses_comfyui_pyav_without_external_ffmpeg(self):
         """La lectura del MP3 funciona con PyAV, instalado por ComfyUI."""
         from types import SimpleNamespace

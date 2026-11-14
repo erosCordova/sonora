@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID, randomBytes, createHash } from "node:crypto";
 import pg from "pg";
+import { spawnSync } from "node:child_process";
 
 // Ejecutar solo contra un servidor y una base de datos de prueba propios.
 const base = process.env.TEST_BASE_URL;
@@ -115,6 +116,37 @@ test("usuarios, cola, reintentos y resultados concurrentes", { skip: !base || !d
     const suffix = await request(`/api/songs/${songId}/audio`, { cookie: users[0], headers: { Range: "bytes=-64" } });
     assert.equal(suffix.response.status, 206);
     assert.equal(suffix.data.byteLength, 64);
+
+    // Audio MP3 real (no WAV simulado): se comprueba subida, persistencia y reproducción parcial.
+    const encoded = spawnSync("ffmpeg", [
+      "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+      "-i", "sine=frequency=523:duration=2", "-codec:a", "libmp3lame",
+      "-q:a", "5", "-f", "mp3", "pipe:1",
+    ], { maxBuffer: 4 * 1024 * 1024 });
+    if (encoded.status === 0 && encoded.stdout.byteLength > 1000) {
+      const mp3 = encoded.stdout;
+      const mp3Job = await createJob(users[0]);
+      const mp3Claim = (await claim(w2)).data.job;
+      assert.equal(mp3Claim.id, mp3Job.id);
+      const mp3Form = new FormData();
+      mp3Form.set("meta", JSON.stringify({ durationSec: 2, model: "MP3 real de integración" }));
+      mp3Form.set("file", new Blob([mp3], { type: "audio/mpeg" }), "prueba.mp3");
+      const mp3Result = await request(`/api/worker/jobs/${mp3Job.id}/complete`, {
+        method: "POST", headers: workerHeaders(w2, mp3Claim.attempts), form: mp3Form,
+      });
+      assert.equal(mp3Result.response.status, 200, JSON.stringify(mp3Result.data));
+      const mp3Song = mp3Result.data.songId;
+      const mp3Audio = await request(`/api/songs/${mp3Song}/audio`, { cookie: users[0],
+        headers: { Range: "bytes=0-255" } });
+      assert.equal(mp3Audio.response.status, 206);
+      assert.equal(mp3Audio.response.headers.get("content-type"), "audio/mpeg");
+      assert.deepEqual(Buffer.from(mp3Audio.data), mp3.subarray(0, 256));
+      const mp3Full = await request(`/api/songs/${mp3Song}/audio`, { cookie: users[0] });
+      assert.equal(mp3Full.response.status, 200);
+      assert.equal(mp3Full.data.byteLength, mp3.length);
+    } else {
+      console.warn("ffmpeg no disponible en el runner: se omite la prueba de audio MP3 auténtico");
+    }
 
     const second = await createJob(users[0]);
     assert.equal((await claim(w1)).data.job.id, second.id);
