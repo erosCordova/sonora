@@ -1,5 +1,5 @@
 "use client";
-import { Compass, Heart, Home, Library, LogOut, Menu, Music2, Settings, Sparkles, X } from "lucide-react";
+import { Clapperboard, Compass, Heart, Home, Library, LogOut, Menu, Music2, Settings, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -15,6 +15,7 @@ import { usePlayer } from "@/stores/player";
 const NAV = [
   { href: "/", label: "Inicio", icon: Home },
   { href: "/create", label: "Crear música", icon: Sparkles },
+  { href: "/videos", label: "Crear videos", icon: Clapperboard },
   { href: "/explore", label: "Explorar", icon: Compass },
   { href: "/library", label: "Mi biblioteca", icon: Library },
   { href: "/favorites", label: "Favoritos", icon: Heart },

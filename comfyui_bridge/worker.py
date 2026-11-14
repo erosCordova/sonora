@@ -202,6 +202,7 @@ class Bridge:
         self.cancelled = False
         self.connected = False
         self.last_heartbeat = 0.0
+        self.video_worker = None
         self._read_config()
 
     def _read_config(self):
@@ -220,7 +221,9 @@ class Bridge:
             return {"running": self.connected and healthy and self.thread is not None and self.thread.is_alive(),
                     "configured": bool(self.token), "modelReady": bool(self.checkpoint),
                     "checkpoint": self.checkpoint, "currentJob": self.job.get("title") if self.job else None,
-                    "lastError": self.last_error, "server": REMOTE}
+                    "lastError": self.last_error, "server": REMOTE,
+                    "videoRunning": bool(self.video_worker and self.video_worker.thread.is_alive()),
+                    "videoError": self.video_worker.last_error if self.video_worker else ""}
 
     def connect(self, token: str, local_url: str):
         local_url = _local_endpoint(local_url)
@@ -254,6 +257,10 @@ class Bridge:
             self.beat_thread = threading.Thread(target=self._heartbeat, daemon=True, name="sonora-heartbeat")
             self.beat_thread.start()
             self.thread.start()
+            # Tareas de video independientes de la GPU musical: PyAV/Pillow + SAPI.
+            from .video_worker import VideoWorker
+            self.video_worker = VideoWorker(self)
+            self.video_worker.start()
         return self.status()
 
     def disconnect(self):
@@ -263,6 +270,7 @@ class Bridge:
             self.last_heartbeat = 0.0
             self.token = ""
             self.checkpoint = ""
+            self.video_worker = None
             self.last_error = "Motor desconectado por el usuario"
             self.config_path.unlink(missing_ok=True)
         return self.status()

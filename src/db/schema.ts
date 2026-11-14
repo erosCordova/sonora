@@ -147,3 +147,18 @@ export const audioObjects = pgTable("audio_objects", {
   content: audioBytes("content").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const videos = pgTable("videos", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull().references(() => users.id, {onDelete:"cascade"}),
+  jobId: uuid("job_id").notNull().unique().references(() => jobs.id, {onDelete:"cascade"}),
+  title: text("title").notNull(),
+  mode: text("mode").notNull().default("imagenes"),
+  aspect: text("aspect").notNull().default("16:9"),
+  sourceKey: text("source_key").notNull(),
+  songId: uuid("song_id").references(() => songs.id,{onDelete:"set null"}),
+  outputKey: text("output_key"),
+  durationSec: real("duration_sec"),
+  bytes: integer("bytes").notNull().default(0),
+  createdAt: timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
+}, t=>[index("videos_owner_idx").on(t.userId,t.createdAt)]);

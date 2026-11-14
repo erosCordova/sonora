@@ -6,6 +6,7 @@ import { checkWorker, jsonError } from "@/lib/http";
 import { finalizeJob, JobError } from "@/lib/jobs";
 import { readWorkerLease } from "@/lib/worker-lease";
 import { StorageQuotaError } from "@/lib/storage";
+import { finalizeVideoJob, VideoError } from "@/lib/video";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -51,9 +52,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
     return jsonError(`Metadatos inválidos: ${(e as Error).message}`, 422);
   }
   try {
-    const song = await finalizeJob(job, Buffer.from(await file.arrayBuffer()), meta, lease);
+    const bytes = Buffer.from(await file.arrayBuffer());
+    if(job.kind === "video") {
+      const videoId = await finalizeVideoJob(job,bytes,meta.durationSec,lease);
+      return Response.json({ok:true,videoId});
+    }
+    const song = await finalizeJob(job, bytes, meta, lease);
     return Response.json({ ok: true, songId: song.id });
   } catch (e) {
+    if (e instanceof VideoError) return jsonError(e.message,e.status);
     if (e instanceof JobError) return jsonError(e.message, e.status);
     if (e instanceof StorageQuotaError) return jsonError(e.message, 413);
     console.error("[worker] complete failed", e);

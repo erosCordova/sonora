@@ -1,6 +1,7 @@
 "use client";
-import { Download, Loader2, Play, Scissors } from "lucide-react";
+import { Clapperboard, Download, Loader2, Play, Scissors } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { Cover } from "@/components/Cover";
 import { Button, Chip, Field, Input, Modal, Textarea, cx } from "@/components/ui";
 import { api, fmtDate, fmtTime, VERSION_LABELS, type JobDTO, type SongDTO } from "@/lib/client/api";
@@ -130,6 +131,10 @@ export function SongDetail({ songId, onClose, onChanged }: { songId: string | nu
               <div className="mt-3 flex flex-wrap gap-2">
                 <Button size="sm" variant="primary" onClick={() => usePlayer.getState().playQueue([s])}><Play className="h-3.5 w-3.5" />Reproducir</Button>
                 <Button size="sm" onClick={() => download(s.id)}><Download className="h-3.5 w-3.5" />Descargar</Button>
+                {s.isOwner && <Link href={`/videos?songId=${s.id}`} onClick={onClose}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-line px-3 text-xs font-medium hover:bg-surface-2">
+                  <Clapperboard className="h-3.5 w-3.5"/>Crear videoclip
+                </Link>}
               </div>
             </div>
           </div>
