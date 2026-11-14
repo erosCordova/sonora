@@ -15,7 +15,7 @@ import { Button, Card, Field, Input, Select, Textarea, cx } from "@/components/u
 import { api, fmtTime, type SongDTO } from "@/lib/client/api";
 import { toast } from "@/stores/toast";
 
-type Mode = "imagenes" | "manga";
+type Mode = "imagenes" | "manga" | "letra";
 type Aspect = "16:9" | "9:16";
 type Step = 1 | 2 | 3;
 type Project = {
@@ -97,7 +97,7 @@ export function VideoStudio() {
   }, [load]);
 
   const chosenSong = songs.find((song) => song.id === songId);
-  const totalSize = assets.reduce((sum, asset) => sum + asset.file.size, audio?.size ?? 0);
+  const totalSize = (mode === "letra" ? 0 : assets.reduce((sum, asset) => sum + asset.file.size, 0)) + (audio?.size ?? 0);
   const canProcess = motor?.online === true;
   const hasAudio = Boolean(songId || audio || narration);
   const firstPreview = assets.find((asset) => asset.url)?.url ?? null;
@@ -156,7 +156,7 @@ export function VideoStudio() {
       if (audioRef.current) audioRef.current.value = "";
       return;
     }
-    if (file && assets.reduce((sum, item) => sum + item.file.size, 0) + file.size > MAX_BUNDLE) {
+    if (file && (mode === "letra" ? 0 : assets.reduce((sum, item) => sum + item.file.size, 0)) + file.size > MAX_BUNDLE) {
       toast.error("Las imágenes y el audio deben sumar 24 MB como máximo.");
       if (audioRef.current) audioRef.current.value = "";
       return;
@@ -166,13 +166,14 @@ export function VideoStudio() {
   }
   function nextStep() {
     if (step === 1) {
-      if (!assets.length) return toast.error("Añade al menos una imagen o un capítulo de manga.");
+      if (mode !== "letra" && !assets.length) return toast.error("Añade al menos una imagen o un capítulo de manga.");
       setStep(2);
       return;
     }
     if (step === 2) {
       if (!hasAudio) return toast.error("Selecciona una canción, un audio o activa la narración.");
       if (narration && !script.trim()) return toast.error("Escribe el texto que se va a narrar.");
+      if (mode === "letra" && !script.trim() && !chosenSong?.lyrics.trim()) return toast.error("Para un video lírico, escribe la letra o usa una canción con letra.");
       setStep(3);
     }
   }
@@ -180,7 +181,7 @@ export function VideoStudio() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (step !== 3) return;
-    if (!assets.length || !hasAudio || (narration && !script.trim())) {
+    if ((mode !== "letra" && !assets.length) || !hasAudio || (narration && !script.trim())) {
       toast.error("Revisa las imágenes y el audio antes de crear el video.");
       return;
     }
@@ -195,7 +196,7 @@ export function VideoStudio() {
         splitPanels: String(mode==="manga" && splitPanels), readingOrder,
         multiVoice: String(narration && multiVoice), sceneSync, subtitles: String(subtitles),
       })) form.set(key, value);
-      for (const item of assets) form.append("files", item.file, item.file.name);
+      if (mode !== "letra") for (const item of assets) form.append("files", item.file, item.file.name);
       if (audio) form.append("files", audio, audio.name);
       const response = await fetch("/api/videos", {method:"POST", body: form});
       const data = await response.json() as {error?:string};
@@ -220,7 +221,7 @@ export function VideoStudio() {
             </p>
             <h1 className="mt-4 font-display text-3xl font-bold tracking-tight sm:text-4xl">Dale vida a tus historias.</h1>
             <p className="mt-3 max-w-lg text-sm leading-relaxed text-white/85">
-              Crea videoclips y transforma tus fotografías, ilustraciones o capítulos de manga en videos con narración, música y movimiento de cámara.
+              Crea videos líricos, videoclips y adapta fotografías o capítulos de manga con música, narración y movimiento de cámara.
             </p>
           </div>
           <div className="relative grid h-20 w-20 shrink-0 place-items-center rounded-[26px] border border-white/25 bg-white/10 shadow-2xl sm:h-24 sm:w-24">
@@ -261,10 +262,11 @@ export function VideoStudio() {
           {step === 1 && <Card className="space-y-5">
             <div><h2 className="font-display text-lg font-bold">1. Selecciona el origen</h2>
               <p className="mt-1 text-sm text-muted">Elige cómo se interpretarán las imágenes en tu video.</p></div>
-            <div className="grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Tipo de proyecto">
+            <div className="grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Tipo de proyecto">
               {([
                 {id:"imagenes" as const, icon:ImagePlus, label:"Imágenes a video", desc:"Fotografías, ilustraciones y portadas con movimiento de cámara."},
                 {id:"manga" as const, icon:Film, label:"Manga a video", desc:"Páginas, viñetas y capítulos CBZ, ZIP o PDF."},
+                {id:"letra" as const, icon:FileText, label:"Video lírico", desc:"Video animado con la letra de una canción, sin imágenes."},
               ]).map(({id,icon:Icon,label,desc}) => <button type="button" role="radio" aria-checked={mode===id} key={id}
                 onClick={()=>setMode(id)} className={cx("rounded-2xl border p-4 text-left transition-colors",
                   mode===id ? "border-brand bg-brand/10 ring-1 ring-brand/25" : "border-line bg-surface hover:border-brand/40 hover:bg-surface-2")}
@@ -274,7 +276,7 @@ export function VideoStudio() {
                 <span className="mt-1 block text-xs leading-relaxed text-muted">{desc}</span>
               </button>)}
             </div>
-            <div className="space-y-2">
+            {mode !== "letra" && <div className="space-y-2">
               <label className="text-xs font-bold uppercase tracking-wide text-muted" htmlFor="video-assets">Archivos para las escenas</label>
               <div data-dragging={dragging} onDragEnter={(e)=>{e.preventDefault();setDragging(true);}}
                 onDragOver={(e)=>e.preventDefault()} onDragLeave={(e)=>{e.preventDefault();setDragging(false);}}
@@ -294,7 +296,8 @@ export function VideoStudio() {
                 Máximo 16 MB por archivo y 24 MB por proyecto. Las escenas se montan en el orden mostrado.
                 {mode==="manga" && " Para PDF, el motor local requiere PyMuPDF. El texto del manga se introduce manualmente."}
               </p>
-            </div>
+            </div>}
+            {mode === "letra" && <div className="rounded-2xl border border-brand/25 bg-brand/5 p-4 text-sm leading-relaxed text-muted">No necesitas subir imágenes. Sonora creará fondos gráficos animados y mostrará la letra de la canción. En el siguiente paso podrás elegir la música o subir tu propia pista de audio.</div>}
             {mode === "manga" && <div className="space-y-3 rounded-2xl border border-line bg-surface-2/55 p-4">
               <label className="flex cursor-pointer items-start gap-3 text-sm">
                 <input type="checkbox" checked={splitPanels} onChange={(e)=>setSplitPanels(e.target.checked)}
@@ -309,7 +312,7 @@ export function VideoStudio() {
                 </Select>
               </Field>}
             </div>}
-            {assets.length > 0 && <div className="space-y-3">
+            {mode !== "letra" && assets.length > 0 && <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-bold">Orden de las escenas <span className="font-normal text-muted">({assets.length})</span></p>
                 <p className="text-xs text-muted">{MB(totalSize)} / 24 MB</p>
@@ -328,7 +331,7 @@ export function VideoStudio() {
               </ul>
             </div>}
             <div className="flex justify-end border-t border-line pt-4">
-              <Button type="button" variant="primary" size="lg" onClick={nextStep} disabled={!assets.length}>
+              <Button type="button" variant="primary" size="lg" onClick={nextStep} disabled={mode !== "letra" && !assets.length}>
                 Continuar con el audio <ArrowRight className="h-4 w-4"/>
               </Button>
             </div>
@@ -339,7 +342,13 @@ export function VideoStudio() {
               <p className="mt-1 text-sm text-muted">Selecciona la banda sonora y añade narración si la necesitas.</p></div>
             <Field label="Usar una canción de Sonora" hint="opcional">
               <Select value={songId} onChange={(e)=>{
-                setSongId(e.target.value); if(e.target.value){setAudio(null);if(audioRef.current)audioRef.current.value="";}
+                const id=e.target.value;
+                setSongId(id);
+                if(id){
+                  setAudio(null);if(audioRef.current)audioRef.current.value="";
+                  const selected=songs.find(s=>s.id===id);
+                  if(mode==="letra" && selected?.lyrics && !script.trim()) setScript(selected.lyrics.slice(0,3000));
+                }
               }}>
                 <option value="">No usar una canción de mi biblioteca</option>
                 {songs.map((s)=><option key={s.id} value={s.id}>{s.title} · {fmtTime(s.durationSec)}</option>)}
@@ -365,11 +374,14 @@ export function VideoStudio() {
               <span><span className="block text-sm font-bold">Voces diferentes para personajes</span>
                 <span className="mt-1 block text-xs leading-relaxed text-muted">Escribe cada línea como «Narrador: ...», «Personaje: ...». Sonora asigna voces y velocidades diferentes según las voces disponibles en Windows, sin clonarlas.</span></span>
             </label>}
-            {narration && <Field label={mode==="manga"?"Diálogos por personaje":"Guion de narración"} hint={`${script.length}/3000`}>
+            {mode==="letra" && chosenSong?.lyrics && <Button type="button" size="sm" onClick={()=>setScript(chosenSong.lyrics.slice(0,3000))}><FileText className="h-4 w-4"/>Usar la letra original de la canción</Button>}
+            {(narration || mode==="letra") && <Field label={mode==="letra"?"Letra para el video":mode==="manga"?"Diálogos por personaje":"Guion de narración"} hint={`${script.length}/3000`}>
               <Textarea rows={7} maxLength={3000} value={script} onChange={(e)=>setScript(e.target.value)}
-                placeholder={mode==="manga"
-                  ? "Narrador: Un nuevo día comienza.\nHéroe: Debemos salir de aquí.\nCompañera: ¡Voy contigo!"
-                  : "Narrador: En una ciudad lejana comienza una nueva aventura..."}/>
+                placeholder={mode==="letra"
+                  ? "[Verse]\nBajo el mismo cielo...\n[Chorus]\nSiempre volveré a ti..."
+                  : mode==="manga"
+                    ? "Narrador: Un nuevo día comienza.\nHéroe: Debemos salir de aquí.\nCompañera: ¡Voy contigo!"
+                    : "Narrador: En una ciudad lejana comienza una nueva aventura..."}/>
             </Field>}
             {mode === "manga" && <div className="flex items-start gap-2.5 rounded-xl border border-line bg-surface-2 px-4 py-3 text-xs leading-relaxed text-muted">
               <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand"/>
@@ -377,7 +389,7 @@ export function VideoStudio() {
             </div>}
             <div className="flex flex-wrap justify-between gap-3 border-t border-line pt-4">
               <Button type="button" onClick={()=>setStep(1)}><ArrowLeft className="h-4 w-4"/>Volver</Button>
-              <Button type="button" variant="primary" size="lg" onClick={nextStep} disabled={!hasAudio || (narration && !script.trim())}>
+              <Button type="button" variant="primary" size="lg" onClick={nextStep} disabled={!hasAudio || (narration && !script.trim()) || (mode === "letra" && !script.trim() && !chosenSong?.lyrics.trim())}>
                 Configurar video <ArrowRight className="h-4 w-4"/>
               </Button>
             </div>
@@ -405,27 +417,27 @@ export function VideoStudio() {
               </Field>
               <p className="text-xs leading-relaxed text-muted">El ajuste musical busca acentos y transitorios para cambiar de escena cerca del ritmo. No analiza ni interpreta la letra automáticamente.</p>
               <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
-                <input type="checkbox" checked={subtitles} onChange={(e)=>setSubtitles(e.target.checked)}
+                <input type="checkbox" checked={mode==="letra" || subtitles} disabled={mode==="letra"} onChange={(e)=>setSubtitles(e.target.checked)}
                   className="h-4 w-4 accent-[var(--brand)]"/>
-                Mostrar líneas del guion sobre el video
+                {mode==="letra" ? "Mostrar la letra de la canción" : "Mostrar líneas del guion sobre el video"}
               </label>
             </div>
             <div className="grid gap-4 rounded-2xl border border-line bg-surface-2/55 p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
               <div className={cx("relative flex min-h-40 items-center justify-center overflow-hidden rounded-xl bg-[#14203b]",aspect==="9:16"?"aspect-[9/16] max-h-56 justify-self-center":"aspect-video")}
                 role={firstPreview?"img":undefined} aria-label={firstPreview?"Vista previa de la primera imagen":undefined}>
-                {firstPreview ? <div className="absolute inset-0 bg-cover bg-center" style={{backgroundImage:`url(${firstPreview})`}}/> : <FileImage className="h-10 w-10 text-white/55"/>}
+                {mode==="letra" ? <div className="grid place-items-center gap-2 text-center text-white"><FileText className="h-11 w-11"/><span className="text-sm font-bold">Video lírico</span></div> : firstPreview ? <div className="absolute inset-0 bg-cover bg-center" style={{backgroundImage:`url(${firstPreview})`}}/> : <FileImage className="h-10 w-10 text-white/55"/>}
                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 text-xs font-semibold text-white">Vista previa de la primera escena</div>
               </div>
               <div className="self-center space-y-3 text-sm">
                 <p className="font-bold">{title.trim() || "Sin título"}</p>
-                <p className="flex items-center gap-2 text-muted"><FileImage className="h-4 w-4 text-brand"/>{assets.length} archivo(s) visuales</p>
+                <p className="flex items-center gap-2 text-muted"><FileImage className="h-4 w-4 text-brand"/>{mode==="letra"?"Fondo animado y letra original":`${assets.length} archivo(s) visuales`}</p>
                 <p className="flex items-center gap-2 text-muted"><Clock3 className="h-4 w-4 text-brand"/>{duration} segundos · {aspect}</p>
                 <p className="flex items-center gap-2 text-muted"><Volume2 className="h-4 w-4 text-brand"/>{chosenSong?.title ?? audio?.name ?? "Solo narración"}</p>
                 {narration && <p className="flex items-center gap-2 text-muted"><Mic2 className="h-4 w-4 text-brand"/>Narración local activada</p>}
               </div>
             </div>
             <p className="rounded-xl border border-line bg-surface-2 p-3 text-xs leading-relaxed text-muted">
-              Se montarán imágenes y viñetas con movimientos de cámara, voces locales y cortes audiovisuales. La animación corporal por difusión, el reconocimiento OCR y la sincronización labial no están disponibles todavía.
+              {mode==="letra" ? "Se creará un video con fondos animados y la letra. No se generan escenas cinematográficas por IA." : "Se montarán imágenes y viñetas con movimientos de cámara, voces locales y cortes audiovisuales. La animación corporal por difusión, el reconocimiento OCR y la sincronización labial no están disponibles todavía."}
             </p>
             <div className="flex flex-wrap justify-between gap-3 border-t border-line pt-4">
               <Button type="button" onClick={()=>setStep(2)}><ArrowLeft className="h-4 w-4"/>Volver</Button>
