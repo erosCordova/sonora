@@ -34,6 +34,7 @@ const MiB = 1024 * 1024;
 const MAX_FILE = 16 * MiB;
 const MAX_BUNDLE = 24 * MiB;
 const MB = (n: number) => (n / MiB).toFixed(1);
+const hasLyrics = (text: string) => text.split(/\r?\n/).some((line) => line.trim() && !/^\[[^\]]{1,40}\]$/.test(line.trim()));
 
 function AssetIcon({file}: {file: File}) {
   if (/\.pdf$/i.test(file.name)) return <FileText className="h-5 w-5"/>;
@@ -173,7 +174,7 @@ export function VideoStudio() {
     if (step === 2) {
       if (!hasAudio) return toast.error("Selecciona una canción, un audio o activa la narración.");
       if (narration && !script.trim()) return toast.error("Escribe el texto que se va a narrar.");
-      if (mode === "letra" && !script.trim() && !chosenSong?.lyrics.trim()) return toast.error("Para un video lírico, escribe la letra o usa una canción con letra.");
+      if (mode === "letra" && !hasLyrics(script || chosenSong?.lyrics || "")) return toast.error("Para un video lírico, escribe versos reales o usa una canción con letra.");
       setStep(3);
     }
   }
@@ -186,6 +187,7 @@ export function VideoStudio() {
       return;
     }
     if (title.trim().length < 2) return toast.error("Escribe un título de al menos dos caracteres.");
+    if(mode==="letra" && !hasLyrics(script || chosenSong?.lyrics || "")) return toast.error("El video lírico necesita versos; no bastan etiquetas como [Verse].");
     if (!canProcess) return toast.error("Conecta el motor de video en ComfyUI antes de generar.");
     setBusy(true);
     try {
@@ -347,7 +349,7 @@ export function VideoStudio() {
                 if(id){
                   setAudio(null);if(audioRef.current)audioRef.current.value="";
                   const selected=songs.find(s=>s.id===id);
-                  if(mode==="letra" && selected?.lyrics && !script.trim()) setScript(selected.lyrics.slice(0,3000));
+                  if(mode==="letra" && hasLyrics(selected?.lyrics ?? "") && !script.trim()) setScript(selected!.lyrics.slice(0,3000));
                 }
               }}>
                 <option value="">No usar una canción de mi biblioteca</option>
@@ -374,7 +376,7 @@ export function VideoStudio() {
               <span><span className="block text-sm font-bold">Voces diferentes para personajes</span>
                 <span className="mt-1 block text-xs leading-relaxed text-muted">Escribe cada línea como «Narrador: ...», «Personaje: ...». Sonora asigna voces y velocidades diferentes según las voces disponibles en Windows, sin clonarlas.</span></span>
             </label>}
-            {mode==="letra" && chosenSong?.lyrics && <Button type="button" size="sm" onClick={()=>setScript(chosenSong.lyrics.slice(0,3000))}><FileText className="h-4 w-4"/>Usar la letra original de la canción</Button>}
+            {mode==="letra" && chosenSong && hasLyrics(chosenSong.lyrics) && <Button type="button" size="sm" onClick={()=>setScript(chosenSong.lyrics.slice(0,3000))}><FileText className="h-4 w-4"/>Usar la letra original de la canción</Button>}
             {(narration || mode==="letra") && <Field label={mode==="letra"?"Letra para el video":mode==="manga"?"Diálogos por personaje":"Guion de narración"} hint={`${script.length}/3000`}>
               <Textarea rows={7} maxLength={3000} value={script} onChange={(e)=>setScript(e.target.value)}
                 placeholder={mode==="letra"
@@ -389,7 +391,7 @@ export function VideoStudio() {
             </div>}
             <div className="flex flex-wrap justify-between gap-3 border-t border-line pt-4">
               <Button type="button" onClick={()=>setStep(1)}><ArrowLeft className="h-4 w-4"/>Volver</Button>
-              <Button type="button" variant="primary" size="lg" onClick={nextStep} disabled={!hasAudio || (narration && !script.trim()) || (mode === "letra" && !script.trim() && !chosenSong?.lyrics.trim())}>
+              <Button type="button" variant="primary" size="lg" onClick={nextStep} disabled={!hasAudio || (narration && !script.trim()) || (mode === "letra" && !hasLyrics(script || chosenSong?.lyrics || ""))}>
                 Configurar video <ArrowRight className="h-4 w-4"/>
               </Button>
             </div>

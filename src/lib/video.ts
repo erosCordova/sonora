@@ -89,11 +89,13 @@ export async function createVideo(userId: string, input: NewVideo, attachments: 
     songId = song.id;
     songLyrics = song.lyrics;
   }
-  if (input.mode === "letra" && !input.script.trim() && !songLyrics.trim()) {
-    throw new VideoError("Para crear un videoclip lírico, selecciona una canción con letra o escribe la letra manualmente");
+  const lyricText = (input.script.trim() || songLyrics).slice(0, 3000);
+  if (input.mode === "letra" && !lyricText.split(/\r?\n/).some((line) =>
+    line.trim() && !/^\[[^\]]{1,40}\]$/.test(line.trim()))) {
+    throw new VideoError("La canción no tiene versos para el video lírico. Escribe la letra o elige otra canción.");
   }
   const resolvedInput = input.mode === "letra"
-    ? { ...input, script: (input.script.trim() || songLyrics).slice(0, 3000), subtitles: true }
+    ? { ...input, script: lyricText, subtitles: true }
     : input;
   const [active] = await db.select({ n: count() }).from(jobs)
     .where(and(eq(jobs.userId, userId), eq(jobs.engine, VIDEO_ENGINE), eq(jobs.status, "pending")));

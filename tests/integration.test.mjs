@@ -300,6 +300,12 @@ test("video: crear proyecto, reclamar worker, subir MP4 y aislar usuarios", {
       aspect:"16:9",duration:"15",script:"[Verse]\nBajo el mismo cielo\n[Chorus]\nVolvemos a cantar",
       narration:"false",sceneSync:"music"})) lyricsForm.set(key,value);
     lyricsForm.append("files",new Blob([wav],{type:"audio/wav"}),"letra.wav");
+    const noLyricsForm=new FormData();
+    for(const [key,value] of Object.entries({title:"Sin versos",mode:"letra",aspect:"16:9",
+      duration:"15",script:"[Instrumental]",narration:"false"})) noLyricsForm.set(key,value);
+    noLyricsForm.append("files",new Blob([wav],{type:"audio/wav"}),"letra.wav");
+    const noLyrics=await call("/api/videos",{cookie:users[0],method:"POST",form:noLyricsForm});
+    assert.equal(noLyrics.response.status,422,JSON.stringify(noLyrics.data));
     const lyricCreate=await call("/api/videos",{cookie:users[0],method:"POST",form:lyricsForm});
     assert.equal(lyricCreate.response.status,201,JSON.stringify(lyricCreate.data));
     const lyricClaim=await call("/api/worker/claim",{method:"POST",headers:bearer,
