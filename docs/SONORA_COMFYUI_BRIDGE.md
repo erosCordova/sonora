@@ -4,15 +4,42 @@ Esta carpeta incorpora un **complemento de ComfyUI Desktop** para procesar las c
 
 **Estado de verificación:** el protocolo y el flujo API tienen pruebas automáticas sin GPU; **no se ha realizado una inferencia real en la RTX 4050 del usuario**. La conexión solo estará operativa cuando ComfyUI procese y devuelva un MP3 auténtico.
 
-## Instalación gráfica (Windows 11)
+## Instalación gráfica: crear canciones desde la interfaz de Sonora (Windows 11)
 
-1. Descarga [ComfyUI Desktop oficial](https://comfy.org/download/), revisa el editor y completa su asistente con NVIDIA/CUDA. Si Smart App Control lo bloquea, **no lo desactives ni fuerces la instalación**.
-2. Abre el flujo oficial [ACE-Step 1.5 Music Generation AIO](https://comfy.org/hub/workflows/ace-step-1-5-music-generation-aio-afd30ccf8238/) en ComfyUI. Descarga el checkpoint `ace_step_1.5_turbo_aio.safetensors` mediante los avisos de modelos faltantes. Comprueba que aparece el nodo nativo `TextEncodeAceStepAudio1.5`.
-3. En **ComfyUI Manager → Install via Git URL**, indica `https://github.com/erosCordova/sonora.git`. Si el administrador no permite instalaciones por URL, no cambies sus opciones de seguridad para eludir el bloqueo. Como alternativa sin terminal, descarga [Sonora desde GitHub como ZIP](https://github.com/erosCordova/sonora), extráelo con el Explorador de archivos y mueve la carpeta de código a la ubicación `custom_nodes/sonora` de ComfyUI. El archivo debe quedar en `custom_nodes/sonora/__init__.py`, **no** en `custom_nodes/sonora/sonora-main/__init__.py`.
-4. Reinicia ComfyUI Desktop. Aparecerá el botón flotante **♫ Sonora** en la esquina inferior derecha. Si no aparece, comprueba que ComfyUI ha cargado el complemento y que el directorio es correcto.
-5. Abre el botón **♫ Sonora** y pega tu `WORKER_TOKEN` desde [Render → Sonora → Environment](https://dashboard.render.com/web/srv-dbr7h4l6e07s73apo4ig). Pulsa **Conectar GPU**. **Nunca pegues ese token en chats ni lo guardes en un workflow**.
-6. El panel solo mostrará **Motor conectado** si están presentes los nodos, el modelo y la conexión autenticada con Render. Vuelve a [Crear canción](https://sonora-erosss.vercel.app/create); el botón se habilitará cuando se reciba el latido del worker.
-7. Para la primera prueba, usa **Personalizado**, letra escrita con etiquetas `[Verse]` y `[Chorus]`, y selecciona una duración breve (30 s) con una sola canción. Comprueba que el MP3 aparezca en **Mi biblioteca**.
+**No hace falta editar los nodos ni pulsar «Ejecutar» en ComfyUI.** Sonora será la interfaz; ComfyUI quedará abierto en segundo plano como motor de audio. Este procedimiento se realiza una sola vez.
+
+### 1. Modelo musical: listo
+
+En la RTX 4050 (6 GB) ya se descargó `ace_step_1.5_turbo_aio.safetensors` y se guardó en:
+
+`C:\Users\erosc\AppData\Local\Comfy-Desktop\ComfyUI-Shared\models\checkpoints\`
+
+La plantilla dejó de indicar «modelo faltante». Esto **solo confirma que ComfyUI encontró el archivo**; todavía no demuestra que el modelo pueda generar audio sin problemas de memoria.
+
+### 2. Instalar el complemento de Sonora sin terminal
+
+La versión nueva de ComfyUI Desktop utiliza **carpetas distintas** para modelos compartidos y complementos de la instancia. **No copies el complemento a `ComfyUI-Shared/models`.**
+
+1. Abre la [página del repositorio Sonora](https://github.com/erosCordova/sonora). Haz clic en **Code → Download ZIP**.
+2. En el Explorador de Windows, ve a Descargas y selecciona **Extraer todo**. Obtendrás una carpeta llamada `sonora-main`. Dentro deben verse `__init__.py` y `comfyui_bridge`.
+3. Desde el Explorador de archivos, abre `%LOCALAPPDATA%\Comfy-Desktop\ComfyUI-Installs`. Esta es la ubicación habitual de las **instancias** en la versión nueva de ComfyUI Desktop, que puede diferir si elegiste otra ubicación. Entra en tu instancia `ComfyUI` y localiza su carpeta `custom_nodes` (puede existir un segundo subdirectorio `ComfyUI` intermedio).
+4. **Copia** la carpeta completa `sonora-main` dentro de `custom_nodes` y **renómbrala `sonora`**. Comprueba que dentro estén `__init__.py` y `comfyui_bridge\worker.py`. No debe quedar un nivel extra `sonora-main` dentro de `sonora`.
+5. En **ComfyUI Desktop → Open Dashboard**, detén la instancia y vuelve a pulsar **Start**. En el editor aparecerá un botón flotante **♫ Sonora** abajo a la derecha. El complemento solo carga desde la carpeta correcta tras reiniciar.
+
+*Nota de seguridad:* este complemento contiene código Python que ComfyUI ejecutará al iniciarse. Instálalo solo después de revisar que el repositorio es el esperado. Si Smart App Control bloquea su carga, no desactives sus controles para forzarla.
+
+### 3. Conectar con Sonora
+
+1. En el editor de ComfyUI pulsa el botón **♫ Sonora**.
+2. En otra pestaña abre [Render → Sonora → Environment](https://dashboard.render.com/web/srv-dbr7h4l6e07s73apo4ig), busca `WORKER_TOKEN` y cópialo. Es una credencial secreta: **no la compartas por el chat, capturas o GitHub**.
+3. Pega el token **solo** en el panel ♫ Sonora de tu ComfyUI local y pulsa **Conectar GPU**. Si aparece un mensaje de error, copia únicamente el mensaje **sin el token**.
+4. Comprueba que Sonora muestra **«Motor musical disponible»** en [Crear música](https://sonora-erosss.vercel.app/create).
+
+### 4. Crear tu primera canción desde la página
+
+En **Sonora → Crear música**, usa **Personalizado**. Escribe un estilo, una letra con etiquetas `[Verse]` y `[Chorus]`, elige **30 segundos**, **1 canción**, y pulsa **Crear canción**. ComfyUI procesará la petición en tu RTX 4050 y Sonora recibirá el MP3 en tu biblioteca si la generación termina satisfactoriamente.
+
+**Limitación de esta versión:** canciones nuevas con letra manual o instrumentales; el modo simple sin compositor de letras y las operaciones de edición no están habilitados. Mantén ComfyUI Desktop en ejecución y conectado a Internet durante la generación.
 
 ## Límites conocidos
 
