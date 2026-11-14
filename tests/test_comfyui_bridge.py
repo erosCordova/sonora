@@ -86,9 +86,15 @@ class ComfyUIBridgeTest(unittest.TestCase):
         try:
             import av  # noqa: F401
         except ImportError:
+            import os
+            if os.environ.get("SONORA_REQUIRE_REAL_MP3") == "1":
+                self.fail("PyAV es obligatorio en la prueba de MP3 real")
             self.skipTest("PyAV no está instalado en este entorno")
         executable = shutil.which("ffmpeg")
         if not executable:
+            import os
+            if os.environ.get("SONORA_REQUIRE_REAL_MP3") == "1":
+                self.fail("FFmpeg es obligatorio para probar PyAV con un MP3 auténtico")
             self.skipTest("ffmpeg no disponible para generar el MP3 de prueba")
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "prueba.mp3"

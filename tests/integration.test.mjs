@@ -145,7 +145,9 @@ test("usuarios, cola, reintentos y resultados concurrentes", { skip: !base || !d
       assert.equal(mp3Full.response.status, 200);
       assert.equal(mp3Full.data.byteLength, mp3.length);
     } else {
-      console.warn("ffmpeg no disponible en el runner: se omite la prueba de audio MP3 auténtico");
+      assert.notEqual(process.env.SONORA_REQUIRE_REAL_MP3, "1",
+        "FFmpeg es obligatorio en GitHub Actions: no puede omitirse la prueba MP3 real");
+      console.warn("Sin FFmpeg local: prueba MP3 omitida fuera de CI");
     }
 
     const second = await createJob(users[0]);
