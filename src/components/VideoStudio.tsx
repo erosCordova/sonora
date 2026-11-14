@@ -29,7 +29,7 @@ export function VideoStudio() {
   },[]);
   useEffect(()=>{
     const id = new URLSearchParams(window.location.search).get("songId");
-    if(id && /^[0-9a-f-]{36}$/i.test(id)) setSongId(id);
+    if(id && /^[0-9a-f-]{36}$/i.test(id)) window.setTimeout(() => setSongId(id), 0);
     void load();
     void api<{songs:SongDTO[]}>("/api/songs?scope=mine&limit=80").then(r=>setSongs(r.songs)).catch(()=>{});
     const interval=window.setInterval(()=>void load(),5000);
