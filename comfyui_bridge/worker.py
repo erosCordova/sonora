@@ -120,7 +120,26 @@ def build_workflow(params: dict, checkpoint=DEFAULT_CHECKPOINT, seed=None, job_i
 
 
 def _duration(path: Path) -> float:
-    """Obtiene duración REAL mediante ffprobe o el decoder de soundfile."""
+    """Mide segundos reales usando PyAV, que ya forma parte de ComfyUI.
+
+    Se cuentan los fotogramas decodificados. No se calcula la duración
+    a partir del tamaño del MP3 ni de los segundos pedidos al modelo.
+    """
+    try:
+        import av
+        with av.open(str(path)) as container:
+            audio_stream = next((stream for stream in container.streams if stream.type == "audio"), None)
+            if audio_stream is not None:
+                seconds = 0.0
+                for frame in container.decode(audio=audio_stream.index):
+                    if frame.sample_rate and frame.samples:
+                        seconds += frame.samples / frame.sample_rate
+                if 1.0 < seconds <= 3600.0:
+                    return seconds
+    except Exception as exc:
+        # Si PyAV no puede abrir el audio, probar lectores alternativos.
+        log.debug("No se pudo medir con PyAV: %s", exc)
+
     tool = shutil.which("ffprobe")
     if tool:
         try:
@@ -140,7 +159,7 @@ def _duration(path: Path) -> float:
             return value
     except (ImportError, ValueError, OSError, RuntimeError):
         pass
-    raise BridgeError("No se pudo medir la duración real del audio. Instala ffmpeg o soundfile en ComfyUI")
+    raise BridgeError("No se pudo medir la duración real del MP3 con los lectores de audio disponibles en ComfyUI")
 
 
 def _upload_audio(url: str, token: str, worker_id: str, job: dict, audio: bytes, duration: float,

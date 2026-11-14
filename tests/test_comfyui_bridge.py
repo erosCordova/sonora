@@ -65,6 +65,41 @@ class ComfyUIBridgeTest(unittest.TestCase):
             self.assertTrue(b.status()["configured"])
             self.assertNotIn("secreto-super-privado", str(b.status()))
 
+    def test_duration_uses_comfyui_pyav_without_external_ffmpeg(self):
+        """La lectura del MP3 funciona con PyAV, instalado por ComfyUI."""
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+        import sys
+
+        fake_container = MagicMock()
+        fake_container.streams = [SimpleNamespace(type="audio", index=0)]
+        fake_container.decode.return_value = [
+            SimpleNamespace(samples=48000, sample_rate=48000) for _ in range(30)
+        ]
+        fake_av = SimpleNamespace(open=MagicMock())
+        fake_av.open.return_value.__enter__.return_value = fake_container
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "cancion.mp3"
+            path.write_bytes(b"ID3-muestra-de-prueba")
+            with patch.dict(sys.modules, {"av": fake_av}), \
+                 patch("comfyui_bridge.worker.shutil.which", return_value=None):
+                self.assertEqual(_duration(path), 30.0)
+                fake_av.open.assert_called_once_with(str(path))
+                fake_container.decode.assert_called_once_with(audio=0)
+
+    def test_duration_rejects_unreadable_file_with_pyav(self):
+        from types import SimpleNamespace
+        import sys
+
+        fake_av = SimpleNamespace(open=lambda _: (_ for _ in ()).throw(ValueError("MP3 inválido")))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "incorrecto.mp3"
+            path.write_bytes(b"audio-corrupto")
+            with patch.dict(sys.modules, {"av": fake_av, "soundfile": None}), \
+                 patch("comfyui_bridge.worker.shutil.which", return_value=None):
+                with self.assertRaisesRegex(BridgeError, "duración real"):
+                    _duration(path)
+
     def test_length_rejects_invalid_audio(self):
         with tempfile.TemporaryDirectory() as directory:
             p=Path(directory)/"audio.mp3"
