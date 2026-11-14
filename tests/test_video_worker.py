@@ -37,6 +37,57 @@ class VideoWorkerTests(unittest.TestCase):
             self.assertEqual(len(images), 2)
             self.assertEqual(images[0].size, (100,100))
 
+
+    def test_manga_panel_detection_and_reading_order(self):
+        from PIL import Image, ImageDraw
+        from comfyui_bridge.video_worker import split_manga_page
+        page = Image.new("RGB",(620,420),"white")
+        d = ImageDraw.Draw(page)
+        d.rectangle((16,15,283,405),fill=(30,60,130))
+        d.rectangle((337,15,603,405),fill=(150,40,60))
+        panels_rtl=split_manga_page(page,"rtl")
+        panels_ltr=split_manga_page(page,"ltr")
+        self.assertEqual(len(panels_rtl),2)
+        self.assertEqual(len(panels_ltr),2)
+        self.assertEqual(panels_rtl[0].getpixel((50,100)),(150,40,60))
+        self.assertEqual(panels_ltr[0].getpixel((50,100)),(30,60,130))
+        self.assertEqual(len(split_manga_page(Image.new("RGB",(400,400),"purple"))),1)
+
+    def test_script_roles_and_non_executable_voice_payload(self):
+        from comfyui_bridge.video_worker import parse_dialogue, windows_voice
+        from unittest.mock import patch
+        import base64
+        import sys
+        lines=parse_dialogue("Narrador: Empieza la aventura.\nLuna: ¡Hola!\nLuna: Ya voy.\nSolo narración")
+        self.assertEqual([x["speaker"] for x in lines],["Narrador","Luna","Luna","Narrador"])
+        self.assertEqual(lines[1]["text"],"¡Hola!")
+        with tempfile.TemporaryDirectory() as folder:
+            output=Path(folder)/"voz.wav"
+            def fake_run(cmd, **kwargs):
+                source=base64.b64decode(cmd[-1]).decode("utf-16le")
+                self.assertIn("SelectVoice",source)
+                self.assertIn("GetInstalledVoices",source)
+                self.assertNotIn("¡Hola!",source)
+                output.write_bytes(b"RIFF"+b"\0"*1100)
+                return type("Process",(),{"returncode":0})()
+            with patch("comfyui_bridge.video_worker.sys.platform","win32"),\
+                 patch("comfyui_bridge.video_worker.subprocess.run",side_effect=fake_run):
+                windows_voice("Luna: ¡Hola!",output,multi_voice=True)
+            self.assertTrue(output.is_file())
+
+    def test_scene_cuts_follow_music_transients(self):
+        import numpy as np
+        from comfyui_bridge.video_worker import scene_cuts
+        fps=12
+        song=np.zeros((2,15*44100),dtype=np.float32)
+        song[:,5*44100:5*44100+5000]=.9
+        baseline=scene_cuts(song,15,fps,3,"uniform")
+        rhythmic=scene_cuts(song,15,fps,3,"music")
+        self.assertEqual(baseline,[0,60,120,180])
+        self.assertEqual(rhythmic[0],0)
+        self.assertEqual(rhythmic[-1],180)
+        self.assertTrue(all(b>a for a,b in zip(rhythmic,rhythmic[1:])))
+
     def test_bundle_does_not_accept_unbounded_input(self):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaises(BridgeError): unpack_bundle(b"NOT-A-VALID-BUNDLE", Path(d))

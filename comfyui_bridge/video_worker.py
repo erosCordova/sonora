@@ -2,7 +2,8 @@
 
 Sin APIs pagadas ni GPU adicional. Dependencias: PyAV, Pillow y NumPy, que
 ComfyUI ya utiliza. La narración usa SAPI de Windows si se solicita.
-Esta versión NO genera fotogramas por difusión ni extrae diálogos automáticamente.
+La separación de viñetas y los cortes al ritmo son análisis locales conservadores.
+No se generan fotogramas por difusión ni se extraen diálogos automáticamente.
 """
 from __future__ import annotations
 
@@ -107,22 +108,151 @@ def load_images(files: list[tuple[str, Path]]):
     return result[:80]
 
 
-def windows_voice(text: str, output: Path):
+
+def _separator_runs(flags, min_width: int, edge: int, size: int):
+    """Cortes solo en calles blancas continuas, lejos de los bordes."""
+    runs = []
+    start = None
+    for i, blank in enumerate(list(flags) + [False]):
+        if blank and start is None:
+            start = i
+        if not blank and start is not None:
+            if i - start >= min_width and start >= edge and i <= size-edge:
+                runs.append((start+i)//2)
+            start = None
+    return runs
+
+
+def split_manga_page(image, reading_order: str = "rtl", max_panels: int = 12):
+    """Segmentación conservadora de viñetas separadas por calles blancas.
+
+    No intenta identificar texto ni personajes: el usuario debe revisar el orden.
+    Nunca recorta un panel si no encuentra separadores suficientemente claros.
+    """
+    import numpy as np
+    if reading_order not in ("rtl", "ltr"):
+        raise BridgeError("Orden de lectura de manga inválido")
+    if max_panels < 1 or max_panels > 24:
+        raise BridgeError("Límite de viñetas inválido")
+
+    def recurse(img, depth=0):
+        width, height = img.size
+        if depth >= 4 or width < 160 or height < 160:
+            return [img]
+        grey = np.asarray(img.convert("L"), dtype=np.uint8)
+        # Blanco casi puro y umbral elevado para no partir por viñetas claras.
+        rows = (grey > 246).mean(axis=1) > .985
+        cols = (grey > 246).mean(axis=0) > .985
+        candidates = [
+            ("row", index) for index in _separator_runs(rows, max(7, height//110), height//6, height)
+        ] + [
+            ("col", index) for index in _separator_runs(cols, max(7, width//110), width//6, width)
+        ]
+        # Preferir separaciones horizontales de manga sobre huecos verticales,
+        # salvo cuando hay una división vertical claramente más centrada.
+        for axis, index in candidates:
+            if axis == "row":
+                parts = [img.crop((0,0,width,index)), img.crop((0,index,width,height))]
+            else:
+                left = img.crop((0,0,index,height))
+                right = img.crop((index,0,width,height))
+                parts = [right,left] if reading_order == "rtl" else [left,right]
+            if min(p.width*p.height for p in parts) < width*height*.16:
+                continue
+            output = []
+            for part in parts:
+                output.extend(recurse(part,depth+1))
+            if 2 <= len(output) <= max_panels:
+                return output
+        return [img]
+    return recurse(image)
+
+
+def parse_dialogue(script: str):
+    """Separa nombres de personaje sin leer las etiquetas en voz alta."""
+    import re
+    result = []
+    for line in script.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        match = re.match(r"^([^:\n]{1,32}):\s*(.+)$", line)
+        if match:
+            speaker, message = match.group(1).strip(), match.group(2).strip()
+        else:
+            speaker, message = "Narrador", line
+        if message:
+            result.append({"speaker":speaker,"text":message})
+    return result[:64]
+
+
+def scene_cuts(music, seconds: int, fps: int, scenes: int, sync: str = "uniform"):
+    """Escoge fronteras de escenas cercanas a transitorios de audio, sin ML pesado."""
+    import numpy as np
+    total = max(1,int(seconds*fps))
+    scenes = max(1,min(int(scenes),total//6 or 1))
+    cuts = [0]
+    onset = None
+    if sync == "music" and music is not None:
+        signal = np.asarray(music,dtype=np.float32)
+        if signal.ndim == 2:
+            signal = signal.mean(axis=0)
+        hop = max(1,len(signal)//total)
+        trimmed = signal[:hop*total]
+        if len(trimmed) == hop*total and hop*total:
+            rms = np.sqrt(np.mean(trimmed.reshape(total,hop)**2,axis=1))
+            onset = np.maximum(0,np.diff(rms,prepend=rms[0]))
+    for i in range(1,scenes):
+        expected = round(total*i/scenes)
+        choice = expected
+        if onset is not None and np.max(onset) > 0.003:
+            radius = min(max(2,round(total/scenes*.25)),int(fps*.75))
+            lo = max(cuts[-1]+6,expected-radius)
+            hi = min(total-(scenes-i)*6,expected+radius)
+            if hi >= lo:
+                values = onset[lo:hi+1]
+                if values.size and values.max() > max(.004,float(np.max(onset))*.12):
+                    choice = lo+int(values.argmax())
+        cuts.append(choice)
+    return cuts+[total]
+
+
+
+def windows_voice(text: str, output: Path, multi_voice: bool = False):
     """Narración local con Microsoft SAPI; no comparte texto con servicios externos."""
     if sys.platform != "win32":
         raise BridgeError("La narración local requiere Windows con voces instaladas")
-    # Nunca concatenar el texto del usuario en comandos ejecutables.
+    # Los datos (nombres/textos) viajan en Base64, nunca se interpolan
+    # como código PowerShell ejecutable, ni siquiera si contienen comillas.
     import base64
-    payload = base64.b64encode(text.encode("utf-8")).decode("ascii")
-    script = ("Add-Type -AssemblyName System.Speech; "
-              "$speaker=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-              "$speaker.SetOutputToWaveFile('" + str(output).replace("'", "''") + "'); "
-              "$spoken=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + payload + "')); "
-              "$speaker.Speak($spoken); $speaker.Dispose()")
+    dialogue = parse_dialogue(text)
+    if not dialogue:
+        raise BridgeError("El guion está vacío")
+    payload = base64.b64encode(json.dumps(dialogue,ensure_ascii=False).encode("utf8")).decode("ascii")
+    script = (
+        "Add-Type -AssemblyName System.Speech; "
+        "$speaker=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+        "$voices=@($speaker.GetInstalledVoices() | ForEach-Object {$_.VoiceInfo.Name}); "
+        "if($voices.Length -lt 1){throw 'No hay voces instaladas'}; "
+        "$speaker.SetOutputToWaveFile('" + str(output).replace("'", "''") + "'); "
+        "$entries=([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + payload + "'))|ConvertFrom-Json); "
+        "$assigned=@{}; $next=0; "
+        "foreach($entry in $entries){ "
+        "$key=([string]$entry.speaker).ToLowerInvariant(); "
+        "if(-not $assigned.ContainsKey($key)){ $assigned[$key]=$next; $next++ }; "
+        + (
+            "$which=[int]($assigned[$key] % $voices.Length); "
+            "$speaker.SelectVoice($voices[$which]); "
+            "$speaker.Rate=[int]((($assigned[$key] % 5)-2)); "
+            if multi_voice else "$speaker.SelectVoice($voices[0]); $speaker.Rate=0; "
+        ) +
+        "$speaker.Speak([string]$entry.text); "
+        "}; $speaker.Dispose()"
+    )
     cmd = base64.b64encode(script.encode("utf-16le")).decode("ascii")
     try:
         result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", cmd],
-                                capture_output=True, timeout=90)
+                                capture_output=True, timeout=180)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise BridgeError("No se pudo iniciar la voz de Windows") from e
     if result.returncode != 0 or not output.is_file() or output.stat().st_size < 1024:
@@ -160,10 +290,12 @@ def decode_audio(path: Path, seconds: int):
 
 
 def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack: Path | None,
-                 narration: Path | None, script: str = "", cancelled=lambda: False, progress=lambda _: None):
+                 narration: Path | None, script: str = "", cancelled=lambda: False, progress=lambda _: None,
+                 scene_sync: str = "uniform", subtitles: bool = True):
     """Produce MP4 real con paneo/zoom y audio AAC. No requiere FFmpeg.exe."""
     import av
     import numpy as np
+    from bisect import bisect_right
     from PIL import Image, ImageDraw, ImageFont, ImageOps
 
     if not images: raise BridgeError("No hay imágenes para crear el video")
@@ -171,11 +303,19 @@ def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack:
     fps = 12
     width, height = (360, 640) if aspect == "9:16" else (640, 360)
     total = fps * seconds
-    lines = [line.strip() for line in script.splitlines() if line.strip()]
+    if scene_sync not in ("uniform", "music"):
+        raise BridgeError("Sincronización audiovisual inválida")
+    lines = [f"{entry['speaker']}: {entry['text']}" for entry in parse_dialogue(script)] if subtitles else []
     try: font = ImageFont.truetype("arial.ttf", 20)
     except OSError: font = ImageFont.load_default()
     music = decode_audio(soundtrack, seconds) if soundtrack else np.zeros((2, seconds * 44100), dtype=np.float32)
     spoken = decode_audio(narration, seconds) if narration else np.zeros_like(music)
+    # Para muchas páginas, conservar una cantidad legible de escenas.
+    scenes = min(len(images), max(1, seconds))
+    if len(images) > scenes:
+        indices = [round(i*(len(images)-1)/max(1,scenes-1)) for i in range(scenes)]
+        images = [images[index] for index in indices]
+    boundaries = scene_cuts(music if soundtrack else None, seconds, fps, len(images), scene_sync)
     pcm = music * (0.45 if narration else 0.9) + spoken * 0.95
     peak = float(np.max(np.abs(pcm)))
     if peak > 0.97: pcm *= 0.97 / peak
@@ -194,11 +334,11 @@ def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack:
         cache = {}
         for index in range(total):
             if cancelled(): raise BridgeError("La generación fue cancelada")
-            src_idx = min(len(images)-1, (index * len(images)) // total)
+            src_idx = min(len(images)-1, bisect_right(boundaries,index)-1)
             if src_idx not in cache:
                 cache[src_idx] = ImageOps.fit(images[src_idx], (int(width * 1.12), int(height * 1.12)), method=Image.Resampling.LANCZOS)
             img = cache[src_idx]
-            segment = (index * len(images)) / total - src_idx
+            segment = (index-boundaries[src_idx]) / max(1, boundaries[src_idx+1]-boundaries[src_idx])
             # Paneo y zoom Ken Burns con desenfoque visual cero.
             zoom = 1 + 0.07 * segment
             crop_w = int(img.width / zoom)
@@ -277,7 +417,7 @@ class VideoWorker:
             current=self.current
             try:
                 payload={"workerId":self.worker_id,"name":"Editor de video local",
-                    "engine":"sonora-video","info":{"backend":"Montaje local","capabilities":["images","manga","speech","mp4"]},
+                    "engine":"sonora-video","info":{"backend":"Montaje local","capabilities":["images","manga","speech","mp4","panels","character-voices","music-sync"]},
                     "currentJobId":current["id"] if current else None,
                     "currentJobAttempt":current["attempts"] if current else None}
                 response=self._post("/api/worker/heartbeat",payload)
@@ -316,6 +456,14 @@ class VideoWorker:
                 data=self._get(f"/api/worker/jobs/{job_id}/video-input",attempt)
                 assets=unpack_bundle(data,root)
                 images=load_images(assets)
+                if params.get("mode") == "manga" and params.get("splitPanels"):
+                    reading = str(params.get("readingOrder") or "rtl")
+                    panels = []
+                    for page in images:
+                        panels.extend(split_manga_page(page,reading))
+                        if len(panels) >= 80:
+                            break
+                    images = panels[:80]
                 upload_audio=next((p for kind,p in assets if kind=="audio"),None)
                 if upload_audio and job.get("sourcePath"):
                     raise BridgeError("No puedes mezclar una canción y un audio subido como pista principal")
@@ -327,10 +475,12 @@ class VideoWorker:
                 voice=None
                 if params.get("narration"):
                     voice=root/"voz.wav"
-                    windows_voice(str(params.get("script") or ""),voice)
+                    windows_voice(str(params.get("script") or ""),voice,multi_voice=bool(params.get("multiVoice")))
                 output=root/"sonora.mp4"
                 render_video(images,output,seconds=seconds,aspect=params.get("aspect","16:9"),
                              soundtrack=soundtrack,narration=voice,script=params.get("script", ""),
+                             scene_sync=params.get("sceneSync","uniform"),
+                             subtitles=bool(params.get("subtitles",True)),
                              cancelled=lambda:self.cancelled or self.bridge.stop.is_set(),progress=progress)
                 progress(0.99)
                 raw=output.read_bytes()

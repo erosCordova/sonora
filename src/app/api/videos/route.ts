@@ -32,6 +32,11 @@ export async function POST(req: Request) {
     script: get("script"),
     narration: get("narration") === "true",
     songId: get("songId") || null,
+    splitPanels: get("mode") === "manga" && get("splitPanels") === "true",
+    readingOrder: get("readingOrder") === "ltr" ? "ltr" : "rtl",
+    multiVoice: get("narration") === "true" && get("multiVoice") === "true",
+    sceneSync: get("sceneSync") === "music" ? "music" : "uniform",
+    subtitles: get("subtitles") !== "false",
   };
   if (input.title.length < 2) return jsonError("Indica un título de al menos dos caracteres", 422);
   if (![15, 30, 60].includes(input.duration)) return jsonError("Selecciona 15, 30 o 60 segundos", 422);

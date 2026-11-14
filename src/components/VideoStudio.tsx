@@ -49,6 +49,11 @@ export function VideoStudio() {
   const [duration, setDuration] = useState(15);
   const [script, setScript] = useState("");
   const [narration, setNarration] = useState(false);
+  const [splitPanels, setSplitPanels] = useState(false);
+  const [readingOrder, setReadingOrder] = useState<"rtl" | "ltr">("rtl");
+  const [multiVoice, setMultiVoice] = useState(true);
+  const [sceneSync, setSceneSync] = useState<"uniform" | "music">("music");
+  const [subtitles, setSubtitles] = useState(true);
   const [songId, setSongId] = useState("");
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [audio, setAudio] = useState<File | null>(null);
@@ -187,6 +192,8 @@ export function VideoStudio() {
       for (const [key, value] of Object.entries({
         title: title.trim(), mode, aspect, duration: String(duration),
         script, narration: String(narration), songId,
+        splitPanels: String(mode==="manga" && splitPanels), readingOrder,
+        multiVoice: String(narration && multiVoice), sceneSync, subtitles: String(subtitles),
       })) form.set(key, value);
       for (const item of assets) form.append("files", item.file, item.file.name);
       if (audio) form.append("files", audio, audio.name);
@@ -285,9 +292,23 @@ export function VideoStudio() {
               </div>
               <p className="text-xs leading-relaxed text-muted">
                 Máximo 16 MB por archivo y 24 MB por proyecto. Las escenas se montan en el orden mostrado.
-                {mode==="manga" && " Para PDF, el motor local requiere PyMuPDF. El texto del manga no se extrae automáticamente en esta versión."}
+                {mode==="manga" && " Para PDF, el motor local requiere PyMuPDF. El texto del manga se introduce manualmente."}
               </p>
             </div>
+            {mode === "manga" && <div className="space-y-3 rounded-2xl border border-line bg-surface-2/55 p-4">
+              <label className="flex cursor-pointer items-start gap-3 text-sm">
+                <input type="checkbox" checked={splitPanels} onChange={(e)=>setSplitPanels(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 accent-[var(--brand)]"/>
+                <span><span className="block font-semibold">Detectar y separar viñetas</span>
+                  <span className="mt-1 block text-xs leading-relaxed text-muted">Busca divisiones blancas entre las viñetas. Funciona mejor con páginas bien delimitadas; si no detecta una división, conserva la página completa.</span></span>
+              </label>
+              {splitPanels && <Field label="Orden de lectura">
+                <Select value={readingOrder} onChange={(e)=>setReadingOrder(e.target.value as "rtl"|"ltr")}>
+                  <option value="rtl">Manga japonés · derecha a izquierda</option>
+                  <option value="ltr">Cómic occidental · izquierda a derecha</option>
+                </Select>
+              </Field>}
+            </div>}
             {assets.length > 0 && <div className="space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-bold">Orden de las escenas <span className="font-normal text-muted">({assets.length})</span></p>
@@ -338,14 +359,21 @@ export function VideoStudio() {
               <span className="flex-1"><span className="flex items-center gap-2 text-sm font-bold"><Mic2 className="h-4 w-4 text-brand"/>Añadir narración</span>
                 <span className="mt-1 block text-xs leading-relaxed text-muted">Genera una voz de narrador con el motor local de Windows; se mezcla con el audio si seleccionaste una pista.</span></span>
             </label>
-            {narration && <Field label="Guion de narración" hint={`${script.length}/3000`}>
+            {narration && mode === "manga" && <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-brand/20 bg-brand/5 p-3">
+              <input type="checkbox" checked={multiVoice} onChange={(e)=>setMultiVoice(e.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-[var(--brand)]"/>
+              <span><span className="block text-sm font-bold">Voces diferentes para personajes</span>
+                <span className="mt-1 block text-xs leading-relaxed text-muted">Escribe cada línea como «Narrador: ...», «Personaje: ...». Sonora asigna voces y velocidades diferentes según las voces disponibles en Windows, sin clonarlas.</span></span>
+            </label>}
+            {narration && <Field label={mode==="manga"?"Diálogos por personaje":"Guion de narración"} hint={`${script.length}/3000`}>
               <Textarea rows={7} maxLength={3000} value={script} onChange={(e)=>setScript(e.target.value)}
-                placeholder={"En una ciudad lejana comienza una nueva aventura..."}/>
+                placeholder={mode==="manga"
+                  ? "Narrador: Un nuevo día comienza.\nHéroe: Debemos salir de aquí.\nCompañera: ¡Voy contigo!"
+                  : "Narrador: En una ciudad lejana comienza una nueva aventura..."}/>
             </Field>}
             {mode === "manga" && <div className="flex items-start gap-2.5 rounded-xl border border-line bg-surface-2 px-4 py-3 text-xs leading-relaxed text-muted">
               <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand"/>
-              Los diálogos no se identifican automáticamente ni se asignan voces distintas por personaje todavía.
-              Puedes escribir una narración manual y animar las viñetas con la canción que elijas.
+              Sonora puede separar viñetas y asignar distintas voces a las líneas del guion. La lectura automática de los globos y la identificación de personajes todavía no están disponibles; escribe o corrige los diálogos antes de generar.
             </div>}
             <div className="flex flex-wrap justify-between gap-3 border-t border-line pt-4">
               <Button type="button" onClick={()=>setStep(1)}><ArrowLeft className="h-4 w-4"/>Volver</Button>
@@ -367,6 +395,21 @@ export function VideoStudio() {
                 <option value={15}>15 segundos</option><option value={30}>30 segundos</option><option value={60}>60 segundos</option>
               </Select></Field>
             </div>
+            <div className="space-y-3 rounded-2xl border border-line bg-surface-2/55 p-4">
+              <h3 className="text-sm font-bold">Montaje audiovisual</h3>
+              <Field label="Cambio de escenas">
+                <Select value={sceneSync} onChange={(e)=>setSceneSync(e.target.value as "uniform"|"music")}>
+                  <option value="uniform">Duración uniforme entre escenas</option>
+                  <option value="music" disabled={!audio&&!songId}>Seguir cambios de intensidad de la música</option>
+                </Select>
+              </Field>
+              <p className="text-xs leading-relaxed text-muted">El ajuste musical busca acentos y transitorios para cambiar de escena cerca del ritmo. No analiza ni interpreta la letra automáticamente.</p>
+              <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+                <input type="checkbox" checked={subtitles} onChange={(e)=>setSubtitles(e.target.checked)}
+                  className="h-4 w-4 accent-[var(--brand)]"/>
+                Mostrar líneas del guion sobre el video
+              </label>
+            </div>
             <div className="grid gap-4 rounded-2xl border border-line bg-surface-2/55 p-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
               <div className={cx("relative flex min-h-40 items-center justify-center overflow-hidden rounded-xl bg-[#14203b]",aspect==="9:16"?"aspect-[9/16] max-h-56 justify-self-center":"aspect-video")}
                 role={firstPreview?"img":undefined} aria-label={firstPreview?"Vista previa de la primera imagen":undefined}>
@@ -382,7 +425,7 @@ export function VideoStudio() {
               </div>
             </div>
             <p className="rounded-xl border border-line bg-surface-2 p-3 text-xs leading-relaxed text-muted">
-              El video se creará con movimientos de cámara y transiciones sobre tus imágenes. Esta versión no genera movimiento corporal ni diálogo automático mediante modelos de difusión.
+              Se montarán imágenes y viñetas con movimientos de cámara, voces locales y cortes audiovisuales. La animación corporal por difusión, el reconocimiento OCR y la sincronización labial no están disponibles todavía.
             </p>
             <div className="flex flex-wrap justify-between gap-3 border-t border-line pt-4">
               <Button type="button" onClick={()=>setStep(2)}><ArrowLeft className="h-4 w-4"/>Volver</Button>

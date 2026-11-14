@@ -64,6 +64,11 @@ export type NewVideo = {
   script: string;
   narration: boolean;
   songId: string | null;
+  splitPanels: boolean;
+  readingOrder: "rtl" | "ltr";
+  multiVoice: boolean;
+  sceneSync: "uniform" | "music";
+  subtitles: boolean;
 };
 
 export async function createVideo(userId: string, input: NewVideo, attachments: {name:string; bytes:Buffer}[]) {
