@@ -36,7 +36,7 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: worker/requirements.txt
-      - run: python -m pip install -r worker/requirements.txt av
+      - run: python -m pip install -r worker/requirements.txt av pillow numpy
       - name: Instalar FFmpeg para pruebas con MP3 real
         run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends ffmpeg
       - run: bash -n scripts/install-worker-rtx4050.sh scripts/start-worker-rtx4050.sh
