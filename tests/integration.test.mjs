@@ -293,6 +293,36 @@ test("video: crear proyecto, reclamar worker, subir MP4 y aislar usuarios", {
     assert.equal(saved.response.status,200);
     assert.equal(saved.data.byteLength,mp4.byteLength);
     assert.equal((await call(`/api/videos/${videoId}/file`,{cookie:users[1]})).response.status,404);
+
+    // Video lírico sin imágenes: solo pista de audio y letra original.
+    const lyricsForm=new FormData();
+    for(const [key,value] of Object.entries({title:"Video lírico de prueba",mode:"letra",
+      aspect:"16:9",duration:"15",script:"[Verse]\nBajo el mismo cielo\n[Chorus]\nVolvemos a cantar",
+      narration:"false",sceneSync:"music"})) lyricsForm.set(key,value);
+    lyricsForm.append("files",new Blob([wav],{type:"audio/wav"}),"letra.wav");
+    const lyricCreate=await call("/api/videos",{cookie:users[0],method:"POST",form:lyricsForm});
+    assert.equal(lyricCreate.response.status,201,JSON.stringify(lyricCreate.data));
+    const lyricClaim=await call("/api/worker/claim",{method:"POST",headers:bearer,
+      json:{workerId,engine:"sonora-video"}});
+    assert.equal(lyricClaim.response.status,200,JSON.stringify(lyricClaim.data));
+    assert.equal(lyricClaim.data.job.id,lyricCreate.data.jobId);
+    assert.equal(lyricClaim.data.job.params.mode,"letra");
+    assert.equal(lyricClaim.data.job.params.subtitles,true);
+    const lyricInput=await call("/api/worker/jobs/"+lyricCreate.data.jobId+"/video-input",
+      {headers:lease(lyricClaim.data.job.attempts)});
+    assert.equal(lyricInput.response.status,200);
+    assert.equal(Buffer.from(lyricInput.data).subarray(0,5).toString(),"SNV01");
+    const lyricResult=new FormData();
+    lyricResult.set("meta",JSON.stringify({durationSec:2,model:"CI videoclip lírico"}));
+    lyricResult.set("file",new Blob([mp4],{type:"video/mp4"}),"letra.mp4");
+    const lyricDone=await call("/api/worker/jobs/"+lyricCreate.data.jobId+"/complete",
+      {method:"POST",headers:lease(lyricClaim.data.job.attempts),form:lyricResult});
+    assert.equal(lyricDone.response.status,200,JSON.stringify(lyricDone.data));
+    assert.equal(lyricDone.data.videoId,lyricCreate.data.id);
+    const lyricVideo=await call("/api/videos/"+lyricCreate.data.id+"/file",{cookie:users[0]});
+    assert.equal(lyricVideo.response.status,200);
+    assert.equal(lyricVideo.data.byteLength,mp4.length);
+    assert.equal((await call("/api/videos/"+lyricCreate.data.id,{cookie:users[0],method:"DELETE"})).response.status,200);
     const status=await call("/api/videos",{cookie:users[0]});
     assert.equal(status.data.motor.online,true);
     assert.equal(typeof status.data.motor.pending,"number");

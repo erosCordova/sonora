@@ -353,6 +353,8 @@ def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack:
     if len(images) > scenes:
         indices = [round(i*(len(images)-1)/max(1,scenes-1)) for i in range(scenes)]
         images = [images[index] for index in indices]
+        if lyrics_mode and lines:
+            lines = [lines[index] for index in indices if index < len(lines)]
     boundaries = scene_cuts(music if soundtrack else None, seconds, fps, len(images), scene_sync)
     pcm = music * (0.45 if narration else 0.9) + spoken * 0.95
     peak = float(np.max(np.abs(pcm)))

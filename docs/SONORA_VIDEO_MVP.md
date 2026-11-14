@@ -20,3 +20,7 @@ La parte de video utiliza CPU y memoria RAM; no bloquea el acceso del sitio web.
 Las fuentes y el MP4 se almacenan **temporalmente en PostgreSQL de Render**, que tiene capacidad limitada y fecha de expiración; no usar la versión gratuita como archivo definitivo de videos. Sólo se sirven videos al propietario autenticado. Los trabajos del motor requieren `WORKER_TOKEN`, identificador e intento correctos. Los archivos se validan por firma y extensión, las extracciones de ZIP limitan páginas/tamaño y no escriben rutas arbitrarias.
 
 **Pendiente después de la primera generación real:** migrar video y audio a almacenamiento de objetos persistente, agregar editor de escenas/personajes, análisis semántico de imagen y letra, TTS de voces múltiples y modelos de difusión de video ligeros compatibles con 6 GB de VRAM.
+
+## Videoclips líricos
+
+La opción **Video lírico** del estudio puede crear un MP4 con fondos gráficos animados y letras sin subir imágenes. Selecciona una canción de tu biblioteca (la letra puede cargarse desde el propio registro) o sube un audio y escribe la letra. La duración disponible sigue siendo de 15, 30 o 60 segundos. Esto no equivale a generar escenas cinematográficas por difusión.
