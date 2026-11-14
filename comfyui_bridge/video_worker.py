@@ -103,14 +103,14 @@ def windows_voice(text: str, output: Path):
     """Narración local con Microsoft SAPI; no comparte texto con servicios externos."""
     if sys.platform != "win32":
         raise BridgeError("La narración local requiere Windows con voces instaladas")
-    # Escapar el texto usando JSON y comando Powershell codificado en UTF-16LE.
-    payload = json.dumps(text, ensure_ascii=False)
+    # Nunca concatenar el texto del usuario en comandos ejecutables.
+    import base64
+    payload = base64.b64encode(text.encode("utf-8")).decode("ascii")
     script = ("Add-Type -AssemblyName System.Speech; "
               "$speaker=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
               "$speaker.SetOutputToWaveFile('" + str(output).replace("'", "''") + "'); "
-              "$speaker.Speak((ConvertFrom-Json @'\n" + payload + "\n'@)); "
-              "$speaker.Dispose()")
-    import base64
+              "$spoken=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + payload + "')); "
+              "$speaker.Speak($spoken); $speaker.Dispose()")
     cmd = base64.b64encode(script.encode("utf-16le")).decode("ascii")
     try:
         result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", cmd],
