@@ -190,6 +190,9 @@ class Bridge:
     def __init__(self, config_path: Path):
         self.config_path = Path(config_path)
         self.lock = threading.RLock()
+        # RTX 4050 6 GB: una tarea GPU de música O video por vez.
+        # El bloqueo se toma ANTES de reclamar un trabajo para no agotar su lease.
+        self.gpu_job_lock = threading.Lock()
         self.stop = threading.Event()
         self.thread = None
         self.beat_thread = None
@@ -316,11 +319,14 @@ class Bridge:
     def _run(self):
         while not self.stop.is_set():
             try:
-                r = self._post("/api/worker/claim", {"workerId": self.worker_id, "engine": "acestep"})
-                job = r.get("job")
-                if job:
-                    self._process(job)
-                else:
+                with self.gpu_job_lock:
+                    if self.stop.is_set():
+                        break
+                    r = self._post("/api/worker/claim", {"workerId": self.worker_id, "engine": "acestep"})
+                    job = r.get("job")
+                    if job:
+                        self._process(job)
+                if not job:
                     self.stop.wait(3)
             except BridgeError as e:
                 with self.lock:

@@ -534,10 +534,16 @@ class VideoWorker:
     def _run(self):
         while not self.bridge.stop.is_set():
             try:
-                result=self._post("/api/worker/claim",{"workerId":self.worker_id,"engine":"sonora-video"})
-                job=result.get("job")
-                if job: self._process(job)
-                else: self.bridge.stop.wait(3)
+                # Serializar tareas locales antes de reclamarlas evita que
+                # ACE-Step y FramePack compitan por los mismos 6 GB de VRAM.
+                with self.bridge.gpu_job_lock:
+                    if self.bridge.stop.is_set():
+                        break
+                    result=self._post("/api/worker/claim",{"workerId":self.worker_id,"engine":"sonora-video"})
+                    job=result.get("job")
+                    if job: self._process(job)
+                if not job:
+                    self.bridge.stop.wait(3)
             except Exception as e:
                 log.exception("Error en motor de video")
                 self.last_error=str(e)[:240]
