@@ -31,7 +31,7 @@ MAX_INPUT = 25 * 1024 * 1024
 MAX_VIDEO = 40 * 1024 * 1024
 
 
-def unpack_bundle(blob: bytes, directory: Path) -> list[tuple[str, Path]]:
+def unpack_bundle(blob: bytes, directory: Path, allow_no_images: bool = False) -> list[tuple[str, Path]]:
     if len(blob) < 11 or len(blob) > MAX_INPUT or blob[:5] != b"SNV01":
         raise BridgeError("Paquete de video inválido o demasiado grande")
     size = int.from_bytes(blob[5:9], "big")
@@ -53,7 +53,7 @@ def unpack_bundle(blob: bytes, directory: Path) -> list[tuple[str, Path]]:
         p.write_bytes(blob[cursor:cursor + length])
         found.append((kind, p))
         cursor += length
-    if cursor != len(blob) or not any(kind != "audio" for kind, _ in found):
+    if cursor != len(blob) or (not allow_no_images and not any(kind != "audio" for kind, _ in found)):
         raise BridgeError("Paquete incompleto o sin imágenes")
     return found
 
@@ -107,6 +107,43 @@ def load_images(files: list[tuple[str, Path]]):
         raise BridgeError("No se encontraron imágenes válidas en el capítulo")
     return result[:80]
 
+
+
+
+def lyric_lines(script: str):
+    """Letra para un videoclip: omite [Verse] y otras etiquetas."""
+    import re
+    return [line.strip()[:140] for line in script.splitlines()
+            if line.strip() and not re.fullmatch(r"\[[^\]]{1,40}\]",line.strip())][:32]
+
+
+def lyric_backgrounds(script: str):
+    """Fondos locales para videos de letra, sin modelo de difusión."""
+    import numpy as np
+    from PIL import Image, ImageDraw
+    lines = lyric_lines(script)
+    if not lines:
+        raise BridgeError("El videoclip lírico necesita una letra para mostrar")
+    palettes = [
+        ((19,30,73),(85,54,135)), ((15,47,85),(42,89,142)),
+        ((30,32,91),(120,53,115)), ((19,53,66),(77,77,138)),
+    ]
+    width, height = 640, 360
+    x = np.linspace(0,1,width,dtype=np.float32)[None,:,None]
+    y = np.linspace(0,1,height,dtype=np.float32)[:,None,None]
+    ramp = np.clip(.55*x+.45*y,0,1)
+    result = []
+    for idx,_ in enumerate(lines):
+        left,right = palettes[idx%len(palettes)]
+        a,b = np.asarray(left,dtype=np.float32),np.asarray(right,dtype=np.float32)
+        pixels = np.asarray(a[None,None,:]*(1-ramp)+b[None,None,:]*ramp,dtype=np.uint8)
+        canvas = Image.fromarray(pixels,mode="RGB")
+        draw = ImageDraw.Draw(canvas)
+        for radius in range(30,170,34):
+            draw.ellipse((width-150-radius,70-radius,width-150+radius,70+radius),
+                         outline=(101+radius//7,111+radius//10,182),width=2)
+        result.append(canvas)
+    return result
 
 
 def _separator_runs(flags, min_width: int, edge: int, size: int):
@@ -291,7 +328,7 @@ def decode_audio(path: Path, seconds: int):
 
 def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack: Path | None,
                  narration: Path | None, script: str = "", cancelled=lambda: False, progress=lambda _: None,
-                 scene_sync: str = "uniform", subtitles: bool = True):
+                 scene_sync: str = "uniform", subtitles: bool = True, lyrics_mode: bool = False):
     """Produce MP4 real con paneo/zoom y audio AAC. No requiere FFmpeg.exe."""
     import av
     import numpy as np
@@ -305,7 +342,8 @@ def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack:
     total = fps * seconds
     if scene_sync not in ("uniform", "music"):
         raise BridgeError("Sincronización audiovisual inválida")
-    lines = [f"{entry['speaker']}: {entry['text']}" for entry in parse_dialogue(script)] if subtitles else []
+    lines = (lyric_lines(script) if lyrics_mode
+             else [f"{entry['speaker']}: {entry['text']}" for entry in parse_dialogue(script)]) if subtitles else []
     try: font = ImageFont.truetype("arial.ttf", 20)
     except OSError: font = ImageFont.load_default()
     music = decode_audio(soundtrack, seconds) if soundtrack else np.zeros((2, seconds * 44100), dtype=np.float32)
@@ -417,7 +455,7 @@ class VideoWorker:
             current=self.current
             try:
                 payload={"workerId":self.worker_id,"name":"Editor de video local",
-                    "engine":"sonora-video","info":{"backend":"Montaje local","capabilities":["images","manga","speech","mp4","panels","character-voices","music-sync"]},
+                    "engine":"sonora-video","info":{"backend":"Montaje local","capabilities":["images","manga","speech","mp4","panels","character-voices","music-sync","lyric-video"]},
                     "currentJobId":current["id"] if current else None,
                     "currentJobAttempt":current["attempts"] if current else None}
                 response=self._post("/api/worker/heartbeat",payload)
@@ -454,8 +492,11 @@ class VideoWorker:
             with tempfile.TemporaryDirectory(prefix="sonora-video-") as folder:
                 root=Path(folder)
                 data=self._get(f"/api/worker/jobs/{job_id}/video-input",attempt)
-                assets=unpack_bundle(data,root)
-                images=load_images(assets)
+                assets=unpack_bundle(data,root,allow_no_images=params.get("mode")=="letra")
+                if params.get("mode") == "letra":
+                    images = lyric_backgrounds(str(params.get("script") or ""))
+                else:
+                    images = load_images(assets)
                 if params.get("mode") == "manga" and params.get("splitPanels"):
                     reading = str(params.get("readingOrder") or "rtl")
                     panels = []
@@ -481,6 +522,7 @@ class VideoWorker:
                              soundtrack=soundtrack,narration=voice,script=params.get("script", ""),
                              scene_sync=params.get("sceneSync","uniform"),
                              subtitles=bool(params.get("subtitles",True)),
+                             lyrics_mode=params.get("mode")=="letra",
                              cancelled=lambda:self.cancelled or self.bridge.stop.is_set(),progress=progress)
                 progress(0.99)
                 raw=output.read_bytes()

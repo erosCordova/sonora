@@ -26,7 +26,7 @@ export async function POST(req: Request) {
   const get = (key: string) => String(form.get(key) ?? "").trim();
   const input: NewVideo = {
     title: get("title").slice(0, 120),
-    mode: get("mode") === "manga" ? "manga" : "imagenes",
+    mode: get("mode") === "manga" ? "manga" : get("mode") === "letra" ? "letra" : "imagenes",
     aspect: get("aspect") === "9:16" ? "9:16" : "16:9",
     duration: Number(get("duration")),
     script: get("script"),
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
   if (![15, 30, 60].includes(input.duration)) return jsonError("Selecciona 15, 30 o 60 segundos", 422);
   if (input.script.length > 3000) return jsonError("El guion no puede superar 3000 caracteres", 422);
   const files = form.getAll("files");
-  if (!files.length || files.length > 13 || files.some((f) => !(f instanceof File))) {
+  if ((input.mode !== "letra" && !files.length) || files.length > 13 || files.some((f) => !(f instanceof File))) {
     return jsonError("Sube entre 1 y 12 imágenes o páginas, y opcionalmente una pista de audio", 422);
   }
   if (files.reduce((sum, f) => sum + (f instanceof File ? f.size : 0), 0) > LIMIT) return jsonError("Los archivos superan 24 MB", 413);

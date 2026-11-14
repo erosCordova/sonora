@@ -88,6 +88,29 @@ class VideoWorkerTests(unittest.TestCase):
         self.assertEqual(rhythmic[-1],180)
         self.assertTrue(all(b>a for a,b in zip(rhythmic,rhythmic[1:])))
 
+
+    def test_lyric_video_without_images(self):
+        import av
+        from PIL import Image
+        from comfyui_bridge.video_worker import unpack_bundle, lyric_backgrounds, lyric_lines
+        source="[Verse]\nBajo el mismo cielo\n[Chorus]\nVolveremos a cantar"
+        self.assertEqual(lyric_lines(source),["Bajo el mismo cielo","Volveremos a cantar"])
+        frames=lyric_backgrounds(source)
+        self.assertEqual(len(frames),2)
+        self.assertEqual(frames[0].size,(640,360))
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            self.assertEqual(unpack_bundle(make_bundle([]),root,allow_no_images=True),[])
+            with self.assertRaises(BridgeError):
+                unpack_bundle(make_bundle([]),root)
+            output=root/"letra.mp4"
+            render_video(frames,output,seconds=15,aspect="16:9",soundtrack=None,
+                         narration=None,script=source,lyrics_mode=True,scene_sync="music")
+            with av.open(str(output)) as result:
+                self.assertTrue(any(x.type=="audio" for x in result.streams))
+                self.assertTrue(any(x.type=="video" for x in result.streams))
+            self.assertGreater(output.stat().st_size,1500)
+
     def test_bundle_does_not_accept_unbounded_input(self):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaises(BridgeError): unpack_bundle(b"NOT-A-VALID-BUNDLE", Path(d))

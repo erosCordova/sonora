@@ -37,15 +37,15 @@ export function validateVideoFile(name: string, data: Buffer): string {
   return kind;
 }
 
-export function packVideoFiles(input: { name: string; bytes: Buffer }[]): Buffer {
-  if (!input.length || input.length > 13) throw new VideoError("Adjunta entre 1 y 12 imágenes/capítulos y, opcionalmente, un audio");
+export function packVideoFiles(input: { name: string; bytes: Buffer }[], allowNoVisuals = false): Buffer {
+  if ((!input.length && !allowNoVisuals) || input.length > 13) throw new VideoError("Adjunta hasta 12 imágenes/capítulos y, opcionalmente, un audio");
   const manifest = input.map((f, i) => ({
     name: `asset_${String(i).padStart(2, "0")}${f.name.toLowerCase().match(/\.[^.]+$/)?.[0] || ""}`,
     kind: validateVideoFile(f.name, f.bytes),
     length: f.bytes.length,
   }));
   if (manifest.filter((f) => f.kind === "audio").length > 1) throw new VideoError("Solo puedes subir una pista de audio");
-  if (!manifest.some((f) => f.kind !== "audio")) throw new VideoError("Sube al menos una imagen, página o capítulo");
+  if (!allowNoVisuals && !manifest.some((f) => f.kind !== "audio")) throw new VideoError("Sube al menos una imagen, página o capítulo");
   const header = Buffer.from(JSON.stringify({ version: 1, files: manifest }), "utf8");
   if (header.length > 8192) throw new VideoError("Demasiados archivos");
   const prefix = Buffer.alloc(9);
@@ -58,7 +58,7 @@ export function packVideoFiles(input: { name: string; bytes: Buffer }[]): Buffer
 
 export type NewVideo = {
   title: string;
-  mode: "imagenes" | "manga";
+  mode: "imagenes" | "manga" | "letra";
   aspect: "16:9" | "9:16";
   duration: number;
   script: string;
@@ -81,23 +81,31 @@ export async function createVideo(userId: string, input: NewVideo, attachments: 
     throw new VideoError("Selecciona una canción, sube un audio o activa la narración para obtener un video con sonido");
   }
   let songId: string | null = null;
+  let songLyrics = "";
   if (input.songId) {
-    const [song] = await db.select({ id: songs.id }).from(songs)
+    const [song] = await db.select({ id: songs.id, lyrics: songs.lyrics }).from(songs)
       .where(and(eq(songs.id, input.songId), eq(songs.userId, userId))).limit(1);
     if (!song) throw new VideoError("La canción seleccionada no pertenece a tu biblioteca", 404);
     songId = song.id;
+    songLyrics = song.lyrics;
   }
+  if (input.mode === "letra" && !input.script.trim() && !songLyrics.trim()) {
+    throw new VideoError("Para crear un videoclip lírico, selecciona una canción con letra o escribe la letra manualmente");
+  }
+  const resolvedInput = input.mode === "letra"
+    ? { ...input, script: (input.script.trim() || songLyrics).slice(0, 3000), subtitles: true }
+    : input;
   const [active] = await db.select({ n: count() }).from(jobs)
     .where(and(eq(jobs.userId, userId), eq(jobs.engine, VIDEO_ENGINE), eq(jobs.status, "pending")));
   if (active.n >= 3) throw new VideoError("Tienes demasiados videos en cola; espera a que se complete uno", 429);
-  const bundle = packVideoFiles(attachments);
+  const bundle = packVideoFiles(attachments,input.mode === "letra");
   const videoId = randomUUID(), jobId = randomUUID();
   const sourceKey = `${userId}/video-input/${videoId}.bundle`;
   await putObject(sourceKey, bundle);
   try {
     await db.transaction(async (tx) => {
       await tx.insert(jobs).values({ id: jobId, userId, groupId: randomUUID(), kind: "video", engine: VIDEO_ENGINE,
-        title: input.title, params: { ...input, videoId }, parentSongId: songId,
+        title: input.title, params: { ...resolvedInput, videoId }, parentSongId: songId,
         maxAttempts: 1 });
       await tx.insert(videos).values({ id: videoId, userId, jobId, title: input.title,
         mode: input.mode, sourceKey, songId, aspect: input.aspect });
