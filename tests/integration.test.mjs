@@ -212,3 +212,88 @@ test("recuperación: token de un solo uso incluso ante peticiones simultáneas",
     await db.end();
   }
 });
+
+test("video: crear proyecto, reclamar worker, subir MP4 y aislar usuarios", {
+  skip: !base || !dbUrl || !token,
+}, async () => {
+  const password = "Clave-video-123";
+  const users = [];
+  const workerId = "video-test-" + randomUUID();
+  async function call(path, {cookie, method="GET", json, form, headers={}}={}) {
+    const response=await fetch(base+path,{method,
+      headers:{...(cookie?{Cookie:cookie}:{}),...(json?{"Content-Type":"application/json"}:{}),...headers},
+      body:json?JSON.stringify(json):form});
+    const contentType=response.headers.get("content-type")||"";
+    const data=contentType.includes("application/json")?await response.json():await response.arrayBuffer();
+    return {response,data};
+  }
+  const bearer={Authorization:`Bearer ${token}`};
+  const lease=(attempt)=>({...bearer,"X-Worker-Id":workerId,"X-Job-Attempt":String(attempt)});
+  try {
+    for(let i=0;i<2;i++){
+      const email=`video-${randomUUID()}@example.test`;
+      const r=await call("/api/auth/register",{method:"POST",json:{name:"Video Tester",email,password}});
+      assert.equal(r.response.status,200,JSON.stringify(r.data));
+      users.push(r.response.headers.get("set-cookie").split(";")[0]);
+    }
+    assert.equal((await call("/api/videos")).response.status,401);
+    const h=await call("/api/worker/heartbeat",{method:"POST",headers:bearer,
+      json:{workerId,engine:"sonora-video",info:{backend:"Montaje local",capabilities:["images","mp4"]}}});
+    assert.equal(h.response.status,200,JSON.stringify(h.data));
+
+    const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/R9sAAAAASUVORK5CYII=","base64");
+    const wav=Buffer.alloc(44+2*44100);
+    wav.write("RIFF",0);wav.writeUInt32LE(wav.length-8,4);
+    wav.write("WAVEfmt ",8);wav.writeUInt32LE(16,16);
+    wav.writeUInt16LE(1,20);wav.writeUInt16LE(1,22);
+    wav.writeUInt32LE(44100,24);wav.writeUInt32LE(88200,28);
+    wav.writeUInt16LE(2,32);wav.writeUInt16LE(16,34);
+    wav.write("data",36);wav.writeUInt32LE(wav.length-44,40);
+    const form=new FormData();
+    for(const [key,value] of Object.entries({title:"Manga de prueba",mode:"manga",aspect:"16:9",duration:"15",script:"Narrador: comienza el viaje",narration:"false"}))
+      form.set(key,value);
+    form.append("files",new Blob([png],{type:"image/png"}),"panel.png");
+    form.append("files",new Blob([wav],{type:"audio/wav"}),"audio.wav");
+    const create=await call("/api/videos",{cookie:users[0],method:"POST",form});
+    assert.equal(create.response.status,201,JSON.stringify(create.data));
+    const videoId=create.data.id,jobId=create.data.jobId;
+    const foreign=await call(`/api/videos/${videoId}/file`,{cookie:users[1]});
+    assert.equal(foreign.response.status,404);
+    const claim=await call("/api/worker/claim",{method:"POST",headers:bearer,
+      json:{workerId,engine:"sonora-video"}});
+    assert.equal(claim.response.status,200,JSON.stringify(claim.data));
+    assert.equal(claim.data.job.id,jobId);
+    const attempt=claim.data.job.attempts;
+    const src=await call(`/api/worker/jobs/${jobId}/video-input`,{headers:lease(attempt)});
+    assert.equal(src.response.status,200);
+    assert.equal(Buffer.from(src.data).subarray(0,5).toString(),"SNV01");
+    assert.equal((await call(`/api/worker/jobs/${jobId}/video-input`,{headers:bearer})).response.status,400);
+    const mp4Result=spawnSync("ffmpeg",["-hide_banner","-loglevel","error",
+      "-f","lavfi","-i","color=c=blue:s=160x90:r=12:d=2",
+      "-f","lavfi","-i","sine=frequency=330:duration=2",
+      "-c:v","libx264","-pix_fmt","yuv420p","-c:a","aac","-shortest",
+      "-movflags","frag_keyframe+empty_moov","-f","mp4","pipe:1"],{maxBuffer:5*1024*1024});
+    assert.equal(mp4Result.status,0,mp4Result.stderr.toString());
+    const mp4=mp4Result.stdout;
+    assert.equal(mp4.toString("ascii",4,8),"ftyp");
+    const videoForm=new FormData();
+    videoForm.set("meta",JSON.stringify({durationSec:2,model:"Render CI MP4"}));
+    videoForm.set("file",new Blob([mp4],{type:"video/mp4"}),"prueba.mp4");
+    const done=await call(`/api/worker/jobs/${jobId}/complete`,{method:"POST",headers:lease(attempt),form:videoForm});
+    assert.equal(done.response.status,200,JSON.stringify(done.data));
+    assert.equal(done.data.videoId,videoId);
+    const list=await call("/api/videos",{cookie:users[0]});
+    assert.equal(list.response.status,200);
+    assert.equal(list.data.videos.some(v=>v.id===videoId&&v.ready),true);
+    const partial=await call(`/api/videos/${videoId}/file`,{cookie:users[0],headers:{Range:"bytes=0-255"}});
+    assert.equal(partial.response.status,206);
+    assert.equal(partial.response.headers.get("content-type"),"video/mp4");
+    assert.deepEqual(Buffer.from(partial.data),mp4.subarray(0,256));
+    const saved=await call(`/api/videos/${videoId}/file`,{cookie:users[0]});
+    assert.equal(saved.response.status,200);
+    assert.equal(saved.data.byteLength,mp4.byteLength);
+    assert.equal((await call(`/api/videos/${videoId}/file`,{cookie:users[1]})).response.status,404);
+  }finally{
+    for(const cookie of users)await call("/api/profile",{cookie,method:"DELETE",json:{password}}).catch(()=>{});
+  }
+});
