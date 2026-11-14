@@ -14,9 +14,9 @@ export const Button = forwardRef<HTMLButtonElement, BtnProps>(function Button(
   ref,
 ) {
   const v = {
-    primary: "bg-brand-gradient text-white glow hover:brightness-110",
+    primary: "bg-brand-gradient text-white shadow-[0_12px_25px_-14px_rgba(65,63,165,.75)] hover:brightness-110",
     ghost: "text-muted hover:text-fg hover:bg-surface-2",
-    outline: "border border-line bg-surface hover:bg-surface-2 text-fg",
+    outline: "border border-line bg-surface hover:border-brand/45 hover:bg-surface-2 text-fg",
     danger: "bg-bad/10 text-bad border border-bad/30 hover:bg-bad/20",
   }[variant];
   const s = { sm: "h-8 px-3 text-xs gap-1.5", md: "h-10 px-4 text-sm gap-2", lg: "h-12 px-6 text-base gap-2", icon: "h-9 w-9 justify-center" }[size];
@@ -25,7 +25,7 @@ export const Button = forwardRef<HTMLButtonElement, BtnProps>(function Button(
       ref={ref}
       disabled={disabled || loading}
       className={cx(
-        "inline-flex items-center justify-center rounded-xl font-medium transition active:scale-[.97] disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
+        "inline-flex items-center justify-center rounded-xl font-semibold transition-all duration-200 active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand",
         v,
         s,
         className,
@@ -38,7 +38,7 @@ export const Button = forwardRef<HTMLButtonElement, BtnProps>(function Button(
   );
 });
 
-const field = "w-full rounded-xl border border-line bg-surface px-3.5 text-sm text-fg placeholder:text-muted/70 transition focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/25 disabled:opacity-60";
+const field = "w-full rounded-xl border border-line bg-surface px-3.5 text-sm text-fg placeholder:text-muted/70 shadow-[0_1px_2px_rgba(20,35,68,.03)] transition-colors focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/20 disabled:opacity-60 file:mr-3 file:rounded-lg file:border-0 file:bg-surface-2 file:px-3 file:py-1 file:text-xs file:font-semibold file:text-fg";
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input({ className, ...p }, ref) {
   return <input ref={ref} className={cx(field, "h-10", className)} {...p} />;
@@ -74,7 +74,7 @@ export function Chip({ active, onClick, children, disabled }: { active?: boolean
       disabled={disabled}
       aria-pressed={active}
       className={cx(
-        "rounded-full border px-3 py-1.5 text-xs font-medium transition active:scale-95 disabled:opacity-50",
+        "rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors active:scale-95 disabled:opacity-50",
         active ? "border-transparent bg-brand-gradient text-white" : "border-line bg-surface text-muted hover:text-fg hover:border-brand/50",
       )}
     >
@@ -85,7 +85,7 @@ export function Chip({ active, onClick, children, disabled }: { active?: boolean
 
 export function Segmented<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: { id: T; label: string; icon?: ReactNode }[] }) {
   return (
-    <div role="tablist" className="inline-flex rounded-xl border border-line bg-surface-2 p-1">
+    <div role="tablist" className="inline-flex max-w-full overflow-x-auto rounded-xl border border-line bg-surface-2 p-1">
       {options.map((o) => (
         <button
           key={o.id}
@@ -94,8 +94,8 @@ export function Segmented<T extends string>({ value, onChange, options }: { valu
           type="button"
           onClick={() => onChange(o.id)}
           className={cx(
-            "inline-flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium transition",
-            value === o.id ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg",
+            "inline-flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold transition-colors",
+            value === o.id ? "bg-surface text-fg shadow-sm ring-1 ring-line/70" : "text-muted hover:text-fg",
           )}
         >
           {o.icon}
@@ -107,14 +107,14 @@ export function Segmented<T extends string>({ value, onChange, options }: { valu
 }
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
-  return <div className={cx("rounded-2xl border border-line bg-surface p-5", className)}>{children}</div>;
+  return <div className={cx("studio-surface rounded-2xl p-5 sm:p-6", className)}>{children}</div>;
 }
 
 export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: ReactNode }) {
   return (
-    <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
+    <header className="mb-7 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">{title}</h1>
+        <h1 className="font-display text-[1.7rem] font-bold tracking-tight sm:text-[2rem]">{title}</h1>
         {subtitle && <p className="mt-1 max-w-2xl text-sm text-muted">{subtitle}</p>}
       </div>
       {actions}

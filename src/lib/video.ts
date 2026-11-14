@@ -109,7 +109,7 @@ export async function listVideos(userId: string) {
     .innerJoin(jobs, eq(videos.jobId, jobs.id))
     .where(eq(videos.userId, userId)).orderBy(desc(videos.createdAt)).limit(50);
   return data.map(({video,job}) => ({
-    id: video.id, title: video.title, mode: video.mode, aspect: video.aspect, createdAt: video.createdAt,
+    id: video.id, jobId: job.id, title: video.title, mode: video.mode, aspect: video.aspect, createdAt: video.createdAt,
     durationSec: video.durationSec, ready: Boolean(video.outputKey) && job.status === "completed",
     status: job.status, stage: job.stage, error: job.error, progress: job.progress,
   }));
@@ -134,9 +134,24 @@ export async function finalizeVideoJob(job: Job, file: Buffer, durationSec: numb
       await tx.update(videos).set({outputKey,durationSec,bytes:file.length})
         .where(eq(videos.id,video.id));
     });
+    await removeObject(video.sourceKey).catch((e) => console.warn("[video] No se pudo limpiar material de entrada:", e));
     return video.id;
   } catch(e) {
     await removeObject(outputKey).catch(() => {});
     throw e;
   }
+}
+
+/** Disponibilidad real del motor audiovisual, separada del motor de música. */
+export async function videoMotorStatus() {
+  const cutoff = new Date(Date.now() - 30_000);
+  const [online, pending, running] = await Promise.all([
+    db.select({ id: workers.id }).from(workers)
+      .where(and(eq(workers.engine, VIDEO_ENGINE),gte(workers.lastSeenAt,cutoff))).limit(1),
+    db.select({ n: count() }).from(jobs)
+      .where(and(eq(jobs.engine,VIDEO_ENGINE),eq(jobs.status,"pending"))),
+    db.select({ n: count() }).from(jobs)
+      .where(and(eq(jobs.engine,VIDEO_ENGINE),eq(jobs.status,"running"))),
+  ]);
+  return { online: online.length > 0, pending: pending[0]?.n ?? 0, running: running[0]?.n ?? 0 };
 }

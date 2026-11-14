@@ -1,10 +1,8 @@
 @import "tailwindcss";
-
 @custom-variant dark (&:where(.dark, .dark *));
-
 @theme {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-display: "Avenir Next", "Segoe UI Variable Display", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Segoe UI Variable", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Avenir Next", ui-sans-serif, system-ui, sans-serif;
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
@@ -13,61 +11,114 @@
   --color-muted: var(--muted);
   --color-brand: var(--brand);
   --color-brand-2: var(--brand-2);
-  --color-ok: #22c55e;
-  --color-warn: #f59e0b;
-  --color-bad: #ef4444;
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+  --color-bad: var(--bad);
 }
-
 :root {
-  --bg: #f6f4fb;
+  --bg: #f3f6fc;
   --surface: #ffffff;
-  --surface-2: #efeaf8;
-  --line: #e2dcf0;
-  --fg: #1b1530;
-  --muted: #6b6485;
-  --brand: #7c3aed;
-  --brand-2: #ec4899;
+  --surface-2: #edf1fb;
+  --line: #dce3f1;
+  --fg: #152039;
+  --muted: #56647d;
+  --brand: #3647b7;
+  --brand-2: #923aa3;
+  --gradient-a: #3548c4;
+  --gradient-b: #863ba9;
+  --ok: #087d6a;
+  --warn: #986009;
+  --bad: #bb284d;
+  --sidebar: #fcfdff;
+  --card-shadow: 0 14px 46px -30px rgba(32, 48, 94, 0.23);
 }
 .dark {
-  --bg: #0c0a14;
-  --surface: #151124;
-  --surface-2: #1d1833;
-  --line: #2a2347;
-  --fg: #f1edfb;
-  --muted: #9b93b8;
-  --brand: #a78bfa;
-  --brand-2: #f472b6;
+  --bg: #09101f;
+  --surface: #121d31;
+  --surface-2: #1b2a44;
+  --line: #2d3d59;
+  --fg: #f3f6ff;
+  --muted: #a5b4cd;
+  --brand: #acb6ff;
+  --brand-2: #e9a6ef;
+  --gradient-a: #4257b8;
+  --gradient-b: #773b9c;
+  --ok: #6dd8bf;
+  --warn: #f7c16e;
+  --bad: #ff849a;
+  --sidebar: #0e1729;
+  --card-shadow: 0 16px 50px -28px rgba(1, 5, 17, .65);
 }
-
 html { color-scheme: light; }
 html.dark { color-scheme: dark; }
 body {
-  background: var(--bg);
+  min-height: 100dvh;
   color: var(--fg);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  background:
+    radial-gradient(ellipse 66rem 38rem at 86% -17%, color-mix(in srgb, var(--gradient-a) 9%, transparent), transparent 70%),
+    radial-gradient(ellipse 56rem 38rem at 9% 104%, color-mix(in srgb, var(--gradient-b) 6%, transparent), transparent 72%),
+    var(--bg);
 }
-::selection { background: color-mix(in srgb, var(--brand) 35%, transparent); }
+::selection { background: color-mix(in srgb, var(--brand) 30%, transparent); }
 * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
-
-.bg-brand-gradient { background-image: linear-gradient(135deg, var(--brand), var(--brand-2)); }
+:focus-visible { outline: 2px solid var(--brand); outline-offset: 3px; }
+.bg-brand-gradient { background-image: linear-gradient(125deg, var(--gradient-a), var(--gradient-b)); }
 .text-brand-gradient {
-  background-image: linear-gradient(135deg, var(--brand), var(--brand-2));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  background-image: linear-gradient(125deg, var(--gradient-a), var(--gradient-b));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
 }
-.glow { box-shadow: 0 10px 40px -12px color-mix(in srgb, var(--brand) 55%, transparent); }
-
-@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-.shimmer {
-  background-image: linear-gradient(90deg, transparent, color-mix(in srgb, var(--brand) 30%, transparent), transparent);
-  background-size: 200% 100%;
-  animation: shimmer 2.2s linear infinite;
+.glow { box-shadow: 0 12px 36px -18px rgba(74, 69, 180, .52); }
+.studio-hero {
+  background:
+    radial-gradient(circle at 89% 14%, rgba(190, 159, 255, .22), transparent 38%),
+    radial-gradient(circle at 22% 102%, rgba(114, 165, 255, .18), transparent 48%),
+    linear-gradient(117deg, #162a57 4%, #3247a0 50%, #653883 100%);
+  color: #fff;
 }
-@keyframes eq { 0%,100% { transform: scaleY(.3); } 50% { transform: scaleY(1); } }
-.eq-bar { transform-origin: bottom; animation: eq 1s ease-in-out infinite; }
-
-@media (prefers-reduced-motion: reduce) {
-  .shimmer, .eq-bar { animation: none; }
+.dark .studio-hero {
+  background:
+    radial-gradient(circle at 84% 12%, rgba(179, 125, 255, .19), transparent 38%),
+    linear-gradient(115deg, #132040 4%, #253668 52%, #4b2e68 100%);
+}
+.studio-surface {
+  background: color-mix(in srgb, var(--surface) 95%, var(--bg));
+  border: 1px solid var(--line);
+  box-shadow: var(--card-shadow);
+}
+.studio-soft { background: var(--surface-2); border: 1px solid var(--line); }
+.studio-step {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 1.9rem; height: 1.9rem; border-radius: .65rem;
+  background: var(--surface-2); border: 1px solid var(--line);
+  font-size: .78rem; font-weight: 700; color: var(--muted);
+}
+.studio-step[data-active="true"] {
+  color: #fff; background: linear-gradient(135deg,var(--gradient-a),var(--gradient-b));
+  border-color: transparent;
+}
+.studio-upload {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--gradient-a) 4%, var(--surface)), var(--surface));
+  border: 1.5px dashed color-mix(in srgb, var(--brand) 44%, var(--line));
+}
+.studio-upload[data-dragging="true"], .studio-upload:focus-within {
+  border-color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 9%, var(--surface));
+}
+.studio-mosaic {
+  background-image: radial-gradient(color-mix(in srgb,var(--brand) 16%,transparent) 1px,transparent 1px);
+  background-size: 20px 20px;
+}
+.studio-glass {
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  backdrop-filter: blur(18px);
+}
+@keyframes shimmer { from {background-position:200% 0;} to {background-position:-200% 0;} }
+.shimmer { background-image:linear-gradient(90deg,transparent,color-mix(in srgb,var(--brand) 24%,transparent),transparent);background-size:200% 100%;animation:shimmer 2.2s linear infinite; }
+@keyframes eq { 0%,100% {transform:scaleY(.3)} 50% {transform:scaleY(1)} }
+.eq-bar {transform-origin:bottom;animation:eq 1s ease-in-out infinite;}
+@media (prefers-reduced-motion:reduce){
+ .shimmer,.eq-bar{animation:none}
+ *,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important}
 }

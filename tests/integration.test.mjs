@@ -293,6 +293,13 @@ test("video: crear proyecto, reclamar worker, subir MP4 y aislar usuarios", {
     assert.equal(saved.response.status,200);
     assert.equal(saved.data.byteLength,mp4.byteLength);
     assert.equal((await call(`/api/videos/${videoId}/file`,{cookie:users[1]})).response.status,404);
+    const status=await call("/api/videos",{cookie:users[0]});
+    assert.equal(status.data.motor.online,true);
+    assert.equal(typeof status.data.motor.pending,"number");
+    assert.equal((await call(`/api/videos/${videoId}`,{cookie:users[1],method:"DELETE"})).response.status,404);
+    const deleted=await call(`/api/videos/${videoId}`,{cookie:users[0],method:"DELETE"});
+    assert.equal(deleted.response.status,200,JSON.stringify(deleted.data));
+    assert.equal((await call(`/api/videos/${videoId}/file`,{cookie:users[0]})).response.status,404);
   }finally{
     for(const cookie of users)await call("/api/profile",{cookie,method:"DELETE",json:{password}}).catch(()=>{});
   }

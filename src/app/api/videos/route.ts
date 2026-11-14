@@ -1,6 +1,6 @@
 import { jsonError, withUser } from "@/lib/http";
 import { limited, rateLimit } from "@/lib/ratelimit";
-import { createVideo, listVideos, VideoError, type NewVideo } from "@/lib/video";
+import { createVideo, listVideos, videoMotorStatus, VideoError, type NewVideo } from "@/lib/video";
 import { StorageQuotaError } from "@/lib/storage";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,8 @@ const LIMIT = 25 * 1024 * 1024;
 export async function GET() {
   const auth = await withUser();
   if (auth.res) return auth.res;
-  return Response.json({ videos: await listVideos(auth.user.id) }, { headers: {"Cache-Control":"no-store"} });
+  const [videos, motor] = await Promise.all([listVideos(auth.user.id), videoMotorStatus()]);
+  return Response.json({ videos, motor }, { headers: {"Cache-Control":"no-store"} });
 }
 
 export async function POST(req: Request) {

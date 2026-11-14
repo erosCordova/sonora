@@ -2,14 +2,14 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Sonora — Música creada con IA",
-  description: "Describe una canción y genérala con modelos abiertos de IA: voces, instrumentos y estructura real.",
+  title: "Sonora — Estudio de música y video con IA",
+  description: "Crea música original, anima imágenes y convierte mangas en videos con audio usando modelos abiertos y procesamiento local.",
 };
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f6f4fb" },
-    { media: "(prefers-color-scheme: dark)", color: "#0c0a14" },
+    { media: "(prefers-color-scheme: light)", color: "#f3f6fc" },
+    { media: "(prefers-color-scheme: dark)", color: "#09101f" },
   ],
 };
 

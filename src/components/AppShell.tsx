@@ -46,7 +46,8 @@ export function AppShell({ user, children }: { user: { name: string; email: stri
   }
 
   const nav = (
-    <nav className="flex flex-1 flex-col gap-1" aria-label="Principal">
+    <nav className="flex flex-1 flex-col gap-1 overflow-y-auto" aria-label="Principal">
+      <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[.2em] text-muted">Tu espacio creativo</p>
       {NAV.map(({ href, label, icon: Icon }) => {
         const on = href === "/" ? pathname === "/" : pathname.startsWith(href);
         return (
@@ -56,8 +57,8 @@ export function AppShell({ user, children }: { user: { name: string; email: stri
             onClick={() => setMenuPath(null)}
             aria-current={on ? "page" : undefined}
             className={cx(
-              "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition",
-              on ? "bg-brand-gradient text-white glow" : "text-muted hover:bg-surface-2 hover:text-fg",
+              "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-semibold transition-colors",
+              on ? "bg-brand-gradient text-white shadow-md shadow-brand/15" : "text-muted hover:bg-surface-2 hover:text-fg",
             )}
           >
             <Icon className="h-[18px] w-[18px]" />
@@ -88,21 +89,21 @@ export function AppShell({ user, children }: { user: { name: string; email: stri
   );
 
   const brand = (
-    <Link href="/" onClick={() => setMenuPath(null)} className="mb-6 flex items-center gap-2.5 px-2">
+    <Link href="/" onClick={() => setMenuPath(null)} className="mb-9 flex items-center gap-3 px-2">
       <span className="grid h-9 w-9 place-items-center rounded-xl bg-brand-gradient text-white glow"><Music2 className="h-5 w-5" /></span>
-      <span className="font-display text-xl font-bold tracking-tight">Sonora</span>
+      <span className="min-w-0"><span className="block font-display text-xl font-bold tracking-tight">Sonora</span><span className="block text-[10px] font-semibold uppercase tracking-[.15em] text-muted">Music & Video Studio</span></span>
     </Link>
   );
 
   return (
     <div className="min-h-dvh lg:pl-64">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-line bg-surface p-4 lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-line bg-[var(--sidebar)] p-4 lg:flex">
         {brand}
         {nav}
         {account}
       </aside>
 
-      <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-line bg-bg/85 px-4 backdrop-blur lg:hidden">
+      <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-line bg-bg/90 px-4 backdrop-blur lg:hidden">
         <button onClick={() => setMenuPath(pathname)} aria-label="Abrir menú" className="grid h-9 w-9 place-items-center rounded-lg hover:bg-surface-2"><Menu className="h-5 w-5" /></button>
         <Link href="/" className="flex items-center gap-2 font-display text-lg font-bold"><Music2 className="h-5 w-5 text-brand" />Sonora</Link>
         <Link href="/create" aria-label="Crear música" className="relative grid h-9 w-9 place-items-center rounded-lg bg-brand-gradient text-white">
@@ -114,7 +115,7 @@ export function AppShell({ user, children }: { user: { name: string; email: stri
       {open && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-black/55 backdrop-blur-sm" onClick={() => setMenuPath(null)} />
-          <aside className="absolute inset-y-0 left-0 flex w-72 flex-col bg-surface p-4 shadow-2xl">
+          <aside className="absolute inset-y-0 left-0 flex w-72 flex-col bg-[var(--sidebar)] p-4 shadow-2xl">
             <button onClick={() => setMenuPath(null)} aria-label="Cerrar menú" className="absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-lg hover:bg-surface-2"><X className="h-4 w-4" /></button>
             {brand}
             {nav}
@@ -123,7 +124,7 @@ export function AppShell({ user, children }: { user: { name: string; email: stri
         </div>
       )}
 
-      <main className={cx("mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-10 lg:py-10", hasTrack ? "pb-40 lg:pb-32" : "pb-10")}>{children}</main>
+      <main className={cx("mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-10 lg:py-9", hasTrack ? "pb-40 lg:pb-32" : "pb-10")}>{children}</main>
       <JobsDock />
       <Player />
       <Toaster />
