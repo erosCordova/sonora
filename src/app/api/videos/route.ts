@@ -37,6 +37,8 @@ export async function POST(req: Request) {
     multiVoice: get("narration") === "true" && get("multiVoice") === "true",
     sceneSync: get("sceneSync") === "music" ? "music" : "uniform",
     subtitles: get("subtitles") !== "false",
+    animationMode: get("animationMode") === "framepack" ? "framepack" : "classic",
+    motionPrompt: get("motionPrompt").slice(0,500),
   };
   if (input.title.length < 2) return jsonError("Indica un título de al menos dos caracteres", 422);
   if (![15, 30, 60].includes(input.duration)) return jsonError("Selecciona 15, 30 o 60 segundos", 422);

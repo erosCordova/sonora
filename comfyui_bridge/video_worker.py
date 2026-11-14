@@ -328,7 +328,8 @@ def decode_audio(path: Path, seconds: int):
 
 def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack: Path | None,
                  narration: Path | None, script: str = "", cancelled=lambda: False, progress=lambda _: None,
-                 scene_sync: str = "uniform", subtitles: bool = True, lyrics_mode: bool = False):
+                 scene_sync: str = "uniform", subtitles: bool = True, lyrics_mode: bool = False,
+                 generated_motion: bool = False):
     """Produce MP4 real con paneo/zoom y audio AAC. No requiere FFmpeg.exe."""
     import av
     import numpy as np
@@ -374,11 +375,17 @@ def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack:
         cache = {}
         for index in range(total):
             if cancelled(): raise BridgeError("La generación fue cancelada")
-            src_idx = min(len(images)-1, bisect_right(boundaries,index)-1)
+            if generated_motion:
+                # El fotograma generado se reproduce como clip animado, no como diapositiva.
+                cycle=max(1,2*len(images)-2)
+                phase=(index*2)%cycle
+                src_idx=phase if phase<len(images) else cycle-phase
+            else:
+                src_idx = min(len(images)-1, bisect_right(boundaries,index)-1)
             if src_idx not in cache:
                 cache[src_idx] = ImageOps.fit(images[src_idx], (int(width * 1.12), int(height * 1.12)), method=Image.Resampling.LANCZOS)
             img = cache[src_idx]
-            segment = (index-boundaries[src_idx]) / max(1, boundaries[src_idx+1]-boundaries[src_idx])
+            segment = 0 if generated_motion else (index-boundaries[src_idx]) / max(1, boundaries[src_idx+1]-boundaries[src_idx])
             # Paneo y zoom Ken Burns con desenfoque visual cero.
             zoom = 1 + 0.07 * segment
             crop_w = int(img.width / zoom)
@@ -425,6 +432,8 @@ class VideoWorker:
         self.last_error = ""
         self.thread = threading.Thread(target=self._run,daemon=True,name="sonora-video")
         self.heartbeat_thread = threading.Thread(target=self._heartbeat,daemon=True,name="sonora-video-heartbeat")
+        self.framepack_ready = False
+        self.framepack_checked_at = 0.0
 
     def start(self):
         self.heartbeat_thread.start()
@@ -456,8 +465,13 @@ class VideoWorker:
         while not self.bridge.stop.is_set():
             current=self.current
             try:
+                if time.monotonic()-self.framepack_checked_at > 120:
+                    self.framepack_checked_at = time.monotonic()
+                    from .framepack_adapter import probe_framepack
+                    self.framepack_ready = bool(probe_framepack(self.bridge.local_url)) if self.bridge.local_url else False
                 payload={"workerId":self.worker_id,"name":"Editor de video local",
-                    "engine":"sonora-video","info":{"backend":"Montaje local","capabilities":["images","manga","speech","mp4","panels","character-voices","music-sync","lyric-video"]},
+                    "engine":"sonora-video","info":{"backend":"Montaje local","capabilities":["images","manga","speech","mp4","panels","character-voices","music-sync","lyric-video"]
+                      + (["framepack"] if self.framepack_ready else [])},
                     "currentJobId":current["id"] if current else None,
                     "currentJobAttempt":current["attempts"] if current else None}
                 response=self._post("/api/worker/heartbeat",payload)
@@ -507,6 +521,24 @@ class VideoWorker:
                         if len(panels) >= 80:
                             break
                     images = panels[:80]
+                generated_motion = False
+                if params.get("animationMode") == "framepack":
+                    if params.get("mode") == "letra":
+                        raise BridgeError("Los videos líricos no admiten FramePack")
+                    if self.bridge.job:
+                        raise BridgeError("Tu GPU está ocupada generando música; inténtalo cuando termine")
+                    from .framepack_adapter import generate_frames
+                    if not self.framepack_ready:
+                        raise BridgeError("FramePack no está instalado o faltan sus modelos; utiliza montaje clásico")
+                    def motion_progress(fraction):
+                        self._post(f"/api/worker/jobs/{job_id}/progress",
+                                   {"stage":"Generando movimiento por IA (FramePack)",
+                                    "progress":min(.48,.05+fraction*.7)},attempt)
+                    images = generate_frames(self.bridge.local_url,images[0],
+                              str(params.get("motionPrompt") or "").strip(),
+                              cancelled=lambda:self.cancelled or self.bridge.stop.is_set(),
+                              progress=motion_progress)
+                    generated_motion = True
                 upload_audio=next((p for kind,p in assets if kind=="audio"),None)
                 if upload_audio and job.get("sourcePath"):
                     raise BridgeError("No puedes mezclar una canción y un audio subido como pista principal")
@@ -525,13 +557,14 @@ class VideoWorker:
                              scene_sync=params.get("sceneSync","uniform"),
                              subtitles=bool(params.get("subtitles",True)),
                              lyrics_mode=params.get("mode")=="letra",
+                             generated_motion=generated_motion,
                              cancelled=lambda:self.cancelled or self.bridge.stop.is_set(),progress=progress)
                 progress(0.99)
                 raw=output.read_bytes()
                 from .worker import _http
                 # Envío multipart con la misma identificación de intento que los trabajos musicales.
                 boundary="sonora-"+uuid.uuid4().hex
-                meta=json.dumps({"durationSec":seconds,"model":"Montaje local Sonora","modelVersion":"1.0"})
+                meta=json.dumps({"durationSec":seconds,"model":"FramePack + Montaje Sonora" if generated_motion else "Montaje local Sonora","modelVersion":"1.1"})
                 body=(f"--{boundary}\r\nContent-Disposition: form-data; name=\"meta\"\r\n\r\n{meta}\r\n"
                       f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"video.mp4\"\r\n"
                       "Content-Type: video/mp4\r\n\r\n").encode()+raw+f"\r\n--{boundary}--\r\n".encode()

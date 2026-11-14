@@ -26,7 +26,7 @@ type Project = {
 type MediaAsset = { id: string; file: File; url: string | null };
 type VideoResponse = {
   videos: Project[];
-  motor?: { online: boolean; pending: number; running: number };
+  motor?: { online: boolean; framepackReady: boolean; pending: number; running: number };
 };
 const visuals = /\.(png|jpe?g|webp|cbz|zip|pdf)$/i;
 const audioExt = /\.(mp3|wav|m4a|flac)$/i;
@@ -55,6 +55,8 @@ export function VideoStudio() {
   const [multiVoice, setMultiVoice] = useState(true);
   const [sceneSync, setSceneSync] = useState<"uniform" | "music">("music");
   const [subtitles, setSubtitles] = useState(true);
+  const [animationMode, setAnimationMode] = useState<"classic"|"framepack">("classic");
+  const [motionPrompt, setMotionPrompt] = useState("Gentle natural motion, subtle breeze, cinematic lighting, consistent character design");
   const [songId, setSongId] = useState("");
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [audio, setAudio] = useState<File | null>(null);
@@ -189,6 +191,8 @@ export function VideoStudio() {
     if (title.trim().length < 2) return toast.error("Escribe un título de al menos dos caracteres.");
     if(mode==="letra" && !hasLyrics(script || chosenSong?.lyrics || "")) return toast.error("El video lírico necesita versos; no bastan etiquetas como [Verse].");
     if (!canProcess) return toast.error("Conecta el motor de video en ComfyUI antes de generar.");
+    if (animationMode==="framepack" && (!motor?.framepackReady || motionPrompt.trim().length<4))
+      return toast.error("FramePack debe estar instalado y el movimiento descrito antes de generar.");
     setBusy(true);
     try {
       const form = new FormData();
@@ -196,7 +200,7 @@ export function VideoStudio() {
         title: title.trim(), mode, aspect, duration: String(duration),
         script, narration: String(narration), songId,
         splitPanels: String(mode==="manga" && splitPanels), readingOrder,
-        multiVoice: String(narration && multiVoice), sceneSync, subtitles: String(subtitles),
+        multiVoice: String(narration && multiVoice), sceneSync, subtitles: String(subtitles), animationMode, motionPrompt,
       })) form.set(key, value);
       if (mode !== "letra") for (const item of assets) form.append("files", item.file, item.file.name);
       if (audio) form.append("files", audio, audio.name);
@@ -409,6 +413,21 @@ export function VideoStudio() {
                 <option value={15}>15 segundos</option><option value={30}>30 segundos</option><option value={60}>60 segundos</option>
               </Select></Field>
             </div>
+            {mode !== "letra" && <div className="space-y-3 rounded-2xl border border-line bg-surface-2/55 p-4">
+              <h3 className="text-sm font-bold">Tipo de movimiento</h3>
+              <label className="flex cursor-pointer items-start gap-2 text-sm">
+                <input type="radio" name="motion-engine" checked={animationMode==="classic"} onChange={()=>setAnimationMode("classic")} className="mt-1 accent-[var(--brand)]"/>
+                <span><strong>Animación clásica</strong><span className="block text-xs text-muted">Paneo y zoom en todas las escenas. No necesita GPU de video.</span></span>
+              </label>
+              <label className="flex cursor-pointer items-start gap-2 text-sm">
+                <input type="radio" name="motion-engine" checked={animationMode==="framepack"} disabled={!motor?.framepackReady} onChange={()=>setAnimationMode("framepack")} className="mt-1 accent-[var(--brand)]"/>
+                <span><strong>Movimiento por IA · FramePack (experimental)</strong><span className="block text-xs leading-relaxed text-muted">Genera una secuencia breve de la primera imagen y la utiliza en el video con sonido. Requiere FramePack y sus modelos instalados en ComfyUI. Puede agotar memoria en una GPU de 6 GB.</span></span>
+              </label>
+              {!motor?.framepackReady && <p className="text-xs text-warn">La generación por IA aparecerá disponible cuando el complemento FramePack y todos sus modelos sean detectados en tu ComfyUI local.</p>}
+              {animationMode==="framepack" && <Field label="¿Qué movimiento debe generar la IA?">
+                <Textarea rows={3} maxLength={500} value={motionPrompt} onChange={(e)=>setMotionPrompt(e.target.value)} placeholder="La figura gira lentamente la cabeza, viento suave..."/>
+              </Field>}
+            </div>}
             <div className="space-y-3 rounded-2xl border border-line bg-surface-2/55 p-4">
               <h3 className="text-sm font-bold">Montaje audiovisual</h3>
               <Field label="Cambio de escenas">
