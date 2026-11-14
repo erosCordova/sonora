@@ -20,7 +20,7 @@ app.registerExtension({
         <strong style="font-size:18px">Conectar Sonora</strong>
         <button id="sonora-close" aria-label="Cerrar" style="background:transparent;color:#ddd;border:0;font-size:21px;cursor:pointer">×</button>
       </div>
-      <p style="color:#d4cde7;line-height:1.4">Usa la GPU de este equipo para generar música solicitada desde Sonora. ComfyUI debe tener ACE-Step 1.5 Turbo AIO instalado.</p>
+      <p style="color:#d4cde7;line-height:1.4">Conecta la música con ACE-Step y el montaje de videos con el motor local Sonora. La generación de video utiliza CPU, RAM y las voces de Windows.</p>
       <label for="sonora-token" style="display:block;margin:12px 0 5px">WORKER_TOKEN privado (Render)</label>
       <input id="sonora-token" type="password" autocomplete="off" placeholder="Pegar una sola vez" style="box-sizing:border-box;width:100%;border:1px solid #625976;background:#0d0a13;border-radius:8px;color:#fff;padding:10px" />
       <p style="color:#bdb5cc;font-size:12px">El token se guarda solo en la carpeta local de usuario de ComfyUI. Nunca se añade al workflow ni a GitHub.</p>
@@ -47,6 +47,8 @@ app.registerExtension({
         ? `● Motor conectado (${s.checkpoint})${s.currentJob ? `\nGenerando: ${s.currentJob}` : ""}`
         : `○ Desconectado${s.configured ? " (token guardado)" : ""}`;
       if (s.lastError) state.textContent += `\nAviso: ${s.lastError}`;
+      state.textContent += `\n${s.videoRunning ? "● Motor de video iniciado" : "○ Motor de video no iniciado"}`;
+      if (s.videoError) state.textContent += `\nVideo: ${s.videoError}`;
     };
     const refresh = async () => { try { present(await apiCall("status")); } catch(e) {state.textContent=e.message;} };
     button.addEventListener("click", () => {
