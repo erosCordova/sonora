@@ -57,6 +57,19 @@ class ComfyUIBridgeTest(unittest.TestCase):
             with self.assertRaises(BridgeError, msg=bad):
                 _local_endpoint(bad)
 
+    def test_connected_status_requires_recent_heartbeat(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bridge = Bridge(Path(directory) / "creds.json")
+            bridge.connected = True
+            bridge.thread = type("Thread", (), {"is_alive": lambda _: True})()
+            bridge.last_heartbeat = 0.0
+            self.assertFalse(bridge.status()["running"])
+            with patch("comfyui_bridge.worker.time.monotonic", return_value=100.0):
+                bridge.last_heartbeat = 70.0
+                self.assertTrue(bridge.status()["running"])
+                bridge.last_heartbeat = 64.0
+                self.assertFalse(bridge.status()["running"])
+
     def test_token_is_not_leaked_in_status(self):
         with tempfile.TemporaryDirectory() as directory:
             p=Path(directory)/"secrets.json"

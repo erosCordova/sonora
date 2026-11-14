@@ -92,6 +92,20 @@ test("usuarios, cola, reintentos y resultados concurrentes", { skip: !base || !d
       assert.equal(stored.rows[0].bytes, wave().byteLength);
       assert.equal(stored.rows[0].actual, wave().byteLength);
     }
+    // Solo ComfyUI online: no aceptar ediciones que necesariamente fallarán.
+    await db.query("UPDATE workers SET last_seen_at = now() - interval '5 minutes' WHERE id = $1", [w1]);
+    const comfyId = `comfy-test-${randomUUID()}`;
+    const comfyHeartbeat = await request("/api/worker/heartbeat", {
+      method: "POST", headers: { Authorization: `Bearer ${token}` },
+      json: { workerId: comfyId, engine: "acestep", info: { backend: "ComfyUI", capabilities: ["generate"] } },
+    });
+    assert.equal(comfyHeartbeat.response.status, 200);
+    const unsupported = await request("/api/jobs/edit", {
+      method: "POST", cookie: users[0], json: { operation: "variation", songId },
+    });
+    assert.equal(unsupported.response.status, 422, JSON.stringify(unsupported.data));
+    assert.match(unsupported.data.error, /solo admite canciones nuevas/);
+
     const ownSongs = await request("/api/songs?scope=mine", { cookie: users[0] });
     assert.equal(ownSongs.data.songs.length, 1);
     assert.equal((await request(`/api/songs/${songId}`, { cookie: users[1] })).response.status, 404);

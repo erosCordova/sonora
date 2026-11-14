@@ -26,9 +26,14 @@ export function SongDetail({ songId, onClose, onChanged }: { songId: string | nu
   const currentId = selection.rootId === songId ? selection.id : songId;
   // Mantener fuera de pantalla los datos de una versión anterior durante la carga.
   const data = loaded?.id === currentId ? loaded.data : null;
-  const [tool, setTool] = useState<Tool>("variation");
+  const [tool, setTool] = useState<Tool>("trim");
   const [busy, setBusy] = useState(false);
   const system = useJobs((s) => s.system);
+  const aiEditAvailable = Boolean(system?.workers.some((w) => {
+    if (w.engine !== system.engine) return false;
+    const caps = w.info.capabilities;
+    return Array.isArray(caps) ? caps.includes("cover") && caps.includes("repaint") : w.info.backend !== "ComfyUI";
+  }));
 
   const [variations, setVariations] = useState(1);
   const [caption, setCaption] = useState("");
@@ -164,9 +169,15 @@ export function SongDetail({ songId, onClose, onChanged }: { songId: string | nu
             <div className="rounded-2xl border border-line p-4">
               <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted">Crear nueva versión (el original no cambia)</p>
               <div className="mb-3 flex flex-wrap gap-2">
-                {TOOLS.map((t) => <Chip key={t.id} active={tool === t.id} onClick={() => setTool(t.id)}>{t.id === "trim" && <Scissors className="mr-1 inline h-3 w-3" />}{t.label}</Chip>)}
+                {TOOLS.filter((t) => aiEditAvailable || t.id === "trim").map((t) => <Chip key={t.id} active={tool === t.id} onClick={() => setTool(t.id)}>{t.id === "trim" && <Scissors className="mr-1 inline h-3 w-3" />}{t.label}</Chip>)}
               </div>
               <p className="mb-3 text-sm text-muted">{desc.desc}</p>
+              {!aiEditAvailable && (
+                <p className="mb-3 rounded-lg bg-surface-2 p-3 text-xs text-muted">
+                  El motor ComfyUI disponible genera canciones originales. Variaciones, cambios de estilo y extensiones
+                  requieren un motor de edición; por ahora puedes recortar tus canciones sin perder el original.
+                </p>
+              )}
 
               {tool === "variation" && (
                 <Field label="Variaciones independientes">
@@ -204,7 +215,7 @@ export function SongDetail({ songId, onClose, onChanged }: { songId: string | nu
               {tool !== "trim" && system && !system.workerOnline && (
                 <p className="mt-3 rounded-lg bg-warn/10 px-3 py-2 text-xs text-warn">El motor musical está desconectado; la tarea esperará hasta que vuelva a estar disponible.</p>
               )}
-              <Button variant="primary" className="mt-4" loading={busy} onClick={submit}>
+              <Button variant="primary" className="mt-4" loading={busy} disabled={tool !== "trim" && !aiEditAvailable} onClick={submit}>
                 {tool === "trim" ? "Guardar recorte" : "Crear versión"}
               </Button>
             </div>

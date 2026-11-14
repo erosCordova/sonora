@@ -40,6 +40,26 @@ async function assertComposerAvailable(engine: string): Promise<void> {
   }
 }
 
+/** Los conectores ComfyUI AIO solo generan canciones nuevas. */
+async function assertEditSupported(engine: string, kind: string): Promise<void> {
+  const cutoff = new Date(Date.now() - WORKER_ONLINE_SECONDS * 1000);
+  const online = await db.select({ info: workers.info }).from(workers)
+    .where(and(eq(workers.engine, engine), gte(workers.lastSeenAt, cutoff)));
+  if (online.length === 0) return; // assertWorkerAvailable controla el modo desconectado.
+  const supported = online.some(({ info }) => {
+    const capabilities = info.capabilities;
+    if (Array.isArray(capabilities)) return capabilities.includes(kind);
+    // Puentes ComfyUI antiguos tampoco soportan cover ni repaint.
+    return info.backend !== "ComfyUI";
+  });
+  if (!supported) {
+    throw new JobError(
+      "El motor ComfyUI conectado solo admite canciones nuevas. Para crear una versión utiliza Recortar, o conecta un motor compatible con edición.",
+      422,
+    );
+  }
+}
+
 export class JobError extends Error {
   constructor(message: string, public status = 400) {
     super(message);
@@ -238,6 +258,7 @@ export async function createEditJobs(userId: string, input: EditInput) {
       break;
     }
   }
+  await assertEditSupported(song.engine || ENGINE, kind);
   const groupId = randomUUID();
   return db
     .insert(jobs)

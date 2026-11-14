@@ -201,6 +201,7 @@ class Bridge:
         self.job = None
         self.cancelled = False
         self.connected = False
+        self.last_heartbeat = 0.0
         self._read_config()
 
     def _read_config(self):
@@ -215,7 +216,8 @@ class Bridge:
 
     def status(self) -> dict:
         with self.lock:
-            return {"running": self.connected and self.thread is not None and self.thread.is_alive(),
+            healthy = self.last_heartbeat > 0 and time.monotonic() - self.last_heartbeat < 35
+            return {"running": self.connected and healthy and self.thread is not None and self.thread.is_alive(),
                     "configured": bool(self.token), "modelReady": bool(self.checkpoint),
                     "checkpoint": self.checkpoint, "currentJob": self.job.get("title") if self.job else None,
                     "lastError": self.last_error, "server": REMOTE}
@@ -231,7 +233,7 @@ class Bridge:
         checkpoint = _choose_checkpoint(info)
         _http(f"{REMOTE}/api/worker/heartbeat", method="POST", token=token,
               json_data={"workerId": self.worker_id, "engine": "acestep", "name": "ComfyUI local",
-                         "info": {"model": checkpoint, "backend": "ComfyUI"},
+                         "info": {"model": checkpoint, "backend": "ComfyUI", "capabilities": ["generate"]},
                          "currentJobId": None, "currentJobAttempt": None})
         with self.lock:
             if self.thread and self.thread.is_alive():
@@ -244,6 +246,7 @@ class Bridge:
             except OSError:
                 pass
             self.last_error = ""
+            self.last_heartbeat = time.monotonic()
             self.stop.clear()
             self.cancelled = False
             self.connected = True
@@ -257,6 +260,7 @@ class Bridge:
         self.stop.set()
         with self.lock:
             self.connected = False
+            self.last_heartbeat = 0.0
             self.token = ""
             self.checkpoint = ""
             self.last_error = "Motor desconectado por el usuario"
@@ -271,10 +275,12 @@ class Bridge:
                 checkpoint = self.checkpoint
             try:
                 body = {"workerId": self.worker_id, "name": "ComfyUI local", "engine": "acestep",
-                    "info": {"model": checkpoint, "backend": "ComfyUI", "device": "local"},
+                    "info": {"model": checkpoint, "backend": "ComfyUI", "device": "local", "capabilities": ["generate"]},
                     "currentJobId": job["id"] if job else None,
                     "currentJobAttempt": job["attempts"] if job else None}
                 r = _http(f"{REMOTE}/api/worker/heartbeat", method="POST", json_data=body, token=token)
+                with self.lock:
+                    self.last_heartbeat = time.monotonic()
                 if r.get("cancel") and job:
                     with self.lock:
                         if self.job is job:
