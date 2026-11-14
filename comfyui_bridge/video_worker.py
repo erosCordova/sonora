@@ -60,13 +60,21 @@ def unpack_bundle(blob: bytes, directory: Path) -> list[tuple[str, Path]]:
 def load_images(files: list[tuple[str, Path]]):
     from PIL import Image, ImageOps
     result = []
+    def fit_memory(image):
+        # ComfyUI y el video comparten 16 GB de RAM: nunca conservar
+        # páginas de manga originales de decenas de megapíxeles.
+        if image.width * image.height > 25_000_000:
+            raise BridgeError("Una imagen supera 25 megapíxeles; redúcela antes de subirla")
+        image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
+        return image.copy()
+
     for kind, path in files:
         if kind == "audio":
             continue
         if kind == "image":
             with Image.open(path) as img:
                 img.load()
-                result.append(ImageOps.exif_transpose(img).convert("RGB"))
+                result.append(fit_memory(ImageOps.exif_transpose(img).convert("RGB")))
         elif kind == "archive":
             try:
                 with zipfile.ZipFile(path) as z:
@@ -81,7 +89,7 @@ def load_images(files: list[tuple[str, Path]]):
                             raise BridgeError("Una página del manga supera 12 MB")
                         with Image.open(io.BytesIO(z.read(m))) as img:
                             img.load()
-                            result.append(ImageOps.exif_transpose(img).convert("RGB"))
+                            result.append(fit_memory(ImageOps.exif_transpose(img).convert("RGB")))
             except zipfile.BadZipFile as e:
                 raise BridgeError("El archivo ZIP/CBZ está dañado") from e
         elif kind == "pdf":
@@ -93,7 +101,7 @@ def load_images(files: list[tuple[str, Path]]):
                 if len(doc) > 80: raise BridgeError("Por ahora se admiten hasta 80 páginas por capítulo")
                 for page in doc:
                     pix = page.get_pixmap(matrix=fitz.Matrix(1.25, 1.25), alpha=False)
-                    result.append(Image.frombytes("RGB", [pix.width, pix.height], pix.samples))
+                    result.append(fit_memory(Image.frombytes("RGB", [pix.width, pix.height], pix.samples)))
     if not result:
         raise BridgeError("No se encontraron imágenes válidas en el capítulo")
     return result[:80]
