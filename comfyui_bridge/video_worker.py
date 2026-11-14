@@ -329,17 +329,23 @@ def decode_audio(path: Path, seconds: int):
 def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack: Path | None,
                  narration: Path | None, script: str = "", cancelled=lambda: False, progress=lambda _: None,
                  scene_sync: str = "uniform", subtitles: bool = True, lyrics_mode: bool = False,
-                 generated_motion: bool = False):
+                 generated_motion: bool = False, quality: str = "alta"):
     """Produce MP4 real con paneo/zoom y audio AAC. No requiere FFmpeg.exe."""
     import av
     import numpy as np
     from bisect import bisect_right
-    from PIL import Image, ImageDraw, ImageFont, ImageOps
+    from collections import OrderedDict
+    from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
 
     if not images: raise BridgeError("No hay imágenes para crear el video")
     if seconds not in (15, 30, 60): raise BridgeError("Duración de video no compatible")
-    fps = 12
-    width, height = (360, 640) if aspect == "9:16" else (640, 360)
+    if quality not in ("alta", "equilibrada"):
+        raise BridgeError("Perfil de calidad de video inválido")
+    # HD real como resolución de archivo, pero las imágenes de IA parten de 384 px.
+    # Un reescalado no convierte la inferencia de FramePack en generación HD nativa.
+    fps = 24
+    width, height = ((720, 1280) if aspect == "9:16" else (1280, 720)) if quality == "alta" else (
+        (540, 960) if aspect == "9:16" else (960, 540))
     total = fps * seconds
     if scene_sync not in ("uniform", "music"):
         raise BridgeError("Sincronización audiovisual inválida")
@@ -363,30 +369,52 @@ def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack:
     with av.open(str(output), mode="w", format="mp4") as mux:
         try:
             vs = mux.add_stream("libx264", rate=fps)
-            vs.options = {"preset":"ultrafast","crf":"31"}
+            vs.options = ({"preset":"medium","crf":"19","maxrate":"4200k","bufsize":"8400k"}
+                          if quality == "alta" else
+                          {"preset":"fast","crf":"22","maxrate":"2700k","bufsize":"5400k"})
         except (av.AVError, ValueError, AttributeError):
             vs = mux.add_stream("mpeg4", rate=fps)
-            vs.bit_rate = 480000
+            vs.bit_rate = 3_600_000 if quality == "alta" else 2_200_000
         vs.width, vs.height = width, height
         vs.pix_fmt = "yuv420p"
         audio = mux.add_stream("aac", rate=44100)
         audio.layout = "stereo"
-        audio.bit_rate = 96000
-        cache = {}
+        audio.bit_rate = 192000 if quality == "alta" else 128000
+        # Caché acotada: el modo IA puede crear cientos de fotogramas y no
+        # debemos conservar cada ampliación HD en 16 GB de RAM.
+        cache = OrderedDict()
+        def prepared(idx):
+            if idx in cache:
+                cache.move_to_end(idx)
+                return cache[idx]
+            frame_img = ImageOps.fit(images[idx], (int(width * 1.12), int(height * 1.12)),
+                                     method=Image.Resampling.LANCZOS)
+            cache[idx] = frame_img
+            if len(cache) > 6:
+                cache.popitem(last=False)
+            return frame_img
+        # Transición de solapamiento: la repetición enlaza el final con
+        # el principio sin saltos bruscos ni reproducir movimientos al revés.
+        overlap = min(12, max(0, len(images) // 6)) if generated_motion else 0
+        period = max(1, len(images) - overlap)
         for index in range(total):
             if cancelled(): raise BridgeError("La generación fue cancelada")
             if generated_motion:
-                # El fotograma generado se reproduce como clip animado, no como diapositiva.
-                cycle=max(1,2*len(images)-2)
-                phase=(index*2)%cycle
-                src_idx=phase if phase<len(images) else cycle-phase
+                # FramePack produce ~30 fotogramas/s: muestrear en orden a 24 FPS
+                # en vez de saltar 2 índices o reproducir el clip al revés.
+                phase = int((index * 30 / fps) % period)
+                src_idx = phase
+                img = prepared(src_idx)
+                if overlap and phase < overlap:
+                    tail_idx = period + phase
+                    fade = (phase + 1) / (overlap + 1)
+                    img = Image.blend(prepared(tail_idx), img, fade)
             else:
                 src_idx = min(len(images)-1, bisect_right(boundaries,index)-1)
-            if src_idx not in cache:
-                cache[src_idx] = ImageOps.fit(images[src_idx], (int(width * 1.12), int(height * 1.12)), method=Image.Resampling.LANCZOS)
-            img = cache[src_idx]
+                img = prepared(src_idx)
             segment = 0 if generated_motion else (index-boundaries[src_idx]) / max(1, boundaries[src_idx+1]-boundaries[src_idx])
-            # Paneo y zoom Ken Burns con desenfoque visual cero.
+            # El paneo Ken Burns se aplica solo a imágenes originales, no
+            # encima de una cámara ya generada por FramePack.
             zoom = 1 + 0.07 * segment
             crop_w = int(img.width / zoom)
             crop_h = int(img.height / zoom)
@@ -394,7 +422,9 @@ def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack:
             dy = max(0, img.height - crop_h)
             left = int(dx * segment) if src_idx % 2 == 0 else int(dx * (1-segment))
             top = int(dy * segment)
-            canvas = img.crop((left, top, left+crop_w, top+crop_h)).resize((width,height),Image.Resampling.BILINEAR)
+            canvas = img.crop((left, top, left+crop_w, top+crop_h)).resize((width,height),Image.Resampling.LANCZOS)
+            if quality == "alta":
+                canvas = canvas.filter(ImageFilter.UnsharpMask(radius=1.0, percent=65, threshold=3))
             if lines:
                 subtitle = lines[src_idx % len(lines)][:90]
                 d = ImageDraw.Draw(canvas)
@@ -420,6 +450,27 @@ def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack:
         for packet in audio.encode(): mux.mux(packet)
     if not output.exists() or output.stat().st_size < 1200 or output.stat().st_size > MAX_VIDEO:
         raise BridgeError("El MP4 producido está vacío o supera el límite de 40 MB")
+
+
+def join_motion_clips(clips, fade_frames: int = 10):
+    """Une clips realmente generados usando transición suave y memoria acotada."""
+    from PIL import Image
+    result = []
+    for clip in clips:
+        if len(clip) < 2:
+            raise BridgeError("FramePack devolvió un clip sin movimiento suficiente")
+        if not result:
+            result.extend(clip)
+            continue
+        n = min(fade_frames, len(result) // 4, len(clip) // 4)
+        if n:
+            for i in range(n):
+                result[-n + i] = Image.blend(
+                    result[-n + i].convert("RGB"), clip[i].convert("RGB"), (i + 1) / (n + 1))
+            result.extend(clip[n:])
+        else:
+            result.extend(clip)
+    return result
 
 
 class VideoWorker:
@@ -501,10 +552,17 @@ class VideoWorker:
             if job.get("kind")!="video": raise BridgeError("Se recibió una tarea incompatible")
             params=job.get("params") or {}
             seconds=int(params.get("duration",30))
+            quality=str(params.get("quality") or "alta")
+            if quality not in ("alta", "equilibrada"):
+                raise BridgeError("Perfil de video no compatible")
             def progress(percentage):
                 if self.cancelled or self.bridge.stop.is_set(): raise BridgeError("La tarea fue cancelada")
+                # El % corresponde exclusivamente a los fotogramas del montaje;
+                # no fingir un porcentaje de inferencia neuronal.
+                done = max(0, min(100, int(percentage * 100)))
                 self._post(f"/api/worker/jobs/{job_id}/progress",
-                           {"stage":"Montando escenas y sonido","progress":min(0.98,0.05+percentage*0.9)},attempt)
+                           {"stage":f"Codificando MP4 {width_label}: {done}% de fotogramas","progress":None},attempt)
+            width_label = "HD 720p" if quality == "alta" else "540p"
             with tempfile.TemporaryDirectory(prefix="sonora-video-") as folder:
                 root=Path(folder)
                 data=self._get(f"/api/worker/jobs/{job_id}/video-input",attempt)
@@ -530,14 +588,30 @@ class VideoWorker:
                     from .framepack_adapter import generate_frames
                     if not self.framepack_ready:
                         raise BridgeError("FramePack no está instalado o faltan sus modelos; utiliza montaje clásico")
-                    def motion_progress(fraction):
-                        self._post(f"/api/worker/jobs/{job_id}/progress",
-                                   {"stage":"Generando movimiento por IA (FramePack)",
-                                    "progress":min(.48,.05+fraction*.7)},attempt)
-                    images = generate_frames(self.bridge.local_url,images[0],
-                              str(params.get("motionPrompt") or "").strip(),
-                              cancelled=lambda:self.cancelled or self.bridge.stop.is_set(),
-                              progress=motion_progress)
+                    # La calidad alta obtiene hasta 3 fragmentos únicos enlazados.
+                    # Con 6 GB son pasadas SECUENCIALES: nunca se carga más de
+                    # una inferencia simultánea y no hay promesa de 15 s únicos.
+                    clip_count = 3 if quality == "alta" else 1
+                    source_images = images
+                    clips = []
+                    for clip_index in range(clip_count):
+                        if self.cancelled or self.bridge.stop.is_set():
+                            raise BridgeError("La generación fue cancelada")
+                        source = (source_images[clip_index] if clip_index < len(source_images)
+                                  else (clips[-1][-1] if clips else source_images[0]))
+                        def motion_progress(message, number=clip_index + 1):
+                            self._post(f"/api/worker/jobs/{job_id}/progress",
+                                       {"stage":f"FramePack {number}/{clip_count}: {message}"[:120],
+                                        "progress":None},attempt)
+                        motion_progress("Preparando clip")
+                        clips.append(generate_frames(
+                            self.bridge.local_url, source,
+                            str(params.get("motionPrompt") or "").strip(),
+                            cancelled=lambda:self.cancelled or self.bridge.stop.is_set(),
+                            progress=motion_progress,
+                            seconds=2.0 if quality == "alta" else 1.0,
+                            steps=18 if quality == "alta" else 8))
+                    images = join_motion_clips(clips)
                     generated_motion = True
                 upload_audio=next((p for kind,p in assets if kind=="audio"),None)
                 if upload_audio and job.get("sourcePath"):
@@ -557,14 +631,15 @@ class VideoWorker:
                              scene_sync=params.get("sceneSync","uniform"),
                              subtitles=bool(params.get("subtitles",True)),
                              lyrics_mode=params.get("mode")=="letra",
-                             generated_motion=generated_motion,
+                             generated_motion=generated_motion,quality=quality,
                              cancelled=lambda:self.cancelled or self.bridge.stop.is_set(),progress=progress)
-                progress(0.99)
+                self._post(f"/api/worker/jobs/{job_id}/progress",
+                           {"stage":"Enviando MP4 al servidor","progress":None},attempt)
                 raw=output.read_bytes()
                 from .worker import _http
                 # Envío multipart con la misma identificación de intento que los trabajos musicales.
                 boundary="sonora-"+uuid.uuid4().hex
-                meta=json.dumps({"durationSec":seconds,"model":"FramePack + Montaje Sonora" if generated_motion else "Montaje local Sonora","modelVersion":"1.1"})
+                meta=json.dumps({"durationSec":seconds,"model":"FramePack + Montaje Sonora" if generated_motion else "Montaje local Sonora","modelVersion":"1.2"})
                 body=(f"--{boundary}\r\nContent-Disposition: form-data; name=\"meta\"\r\n\r\n{meta}\r\n"
                       f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"video.mp4\"\r\n"
                       "Content-Type: video/mp4\r\n\r\n").encode()+raw+f"\r\n--{boundary}--\r\n".encode()

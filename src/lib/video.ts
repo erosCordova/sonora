@@ -61,6 +61,7 @@ export type NewVideo = {
   mode: "imagenes" | "manga" | "letra";
   aspect: "16:9" | "9:16";
   duration: number;
+  quality: "alta" | "equilibrada";
   script: string;
   narration: boolean;
   songId: string | null;
@@ -74,6 +75,7 @@ export type NewVideo = {
 };
 
 export async function createVideo(userId: string, input: NewVideo, attachments: {name:string; bytes:Buffer}[]) {
+  if (!["alta","equilibrada"].includes(input.quality)) throw new VideoError("Calidad de video inválida");
   const cutoff = new Date(Date.now() - 30_000);
   const activeWorkers = await db.select({ id: workers.id, info: workers.info }).from(workers)
     .where(and(eq(workers.engine, VIDEO_ENGINE), gte(workers.lastSeenAt, cutoff))).limit(10);

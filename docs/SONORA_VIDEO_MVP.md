@@ -29,7 +29,11 @@ La opción **Video lírico** del estudio puede crear un MP4 con fondos gráficos
 
 Sonora ofrece un segundo modo de movimiento solamente cuando ComfyUI confirma que FramePack y sus archivos de modelos están instalados. No hay descarga automática ni conexión a APIs pagadas.
 
-El motor experimental crea una secuencia de aproximadamente un segundo de la primera imagen del proyecto; el montaje final repite esta secuencia en un bucle de ida y vuelta e incorpora audio y subtítulos. No representa todavía un videoclip cinematográfico completo ni anima automáticamente todas las imágenes del manga.
+El motor experimental puede crear varios clips secuenciales de FramePack: el perfil **Alta** intenta hasta 3 pasadas de 2 segundos (hasta ~6 segundos de animación única, incluyendo transiciones); **Equilibrada** intenta una pasada de 1 segundo. La salida final de 15/30/60 segundos utiliza un bucle con transición suave si el metraje generativo es más corto que el video final. No ofrece todavía un videoclip íntegro de 15–60 segundos generado por difusión ni anima necesariamente todas las páginas de manga. Cada pasada usa la RTX 4050 secuencialmente: puede tardar mucho o fallar por insuficiencia de RAM/VRAM.
+
+Los MP4 se exportan en **HD 1280×720 / 720×1280 a 24 FPS, H.264 con CRF 19 y audio AAC de 192 kbps** para el perfil Alta. Equilibrada exporta a 960×540 / 540×960 y 24 FPS. FramePack sigue generando imágenes internamente a ~384 px, por lo que un MP4 720p es un **reescalado**, no generación nativa a 720p. El peso máximo del archivo sigue siendo 40 MiB en la infraestructura gratuita.
+
+En FramePack **no se muestra un porcentaje ficticio** mientras el modelo genera: la interfaz indica la etapa y el clip activo. Durante la codificación MP4 se muestra el porcentaje verificable de fotogramas codificados.
 
 ### Preparación del equipo local
 

@@ -115,6 +115,15 @@ class VideoWorkerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaises(BridgeError): unpack_bundle(b"NOT-A-VALID-BUNDLE", Path(d))
 
+    def test_join_motion_clips_reduces_repeated_boundaries(self):
+        from PIL import Image
+        from comfyui_bridge.video_worker import join_motion_clips
+        clips=[[Image.new("RGB",(64,64),c) for c in ("red","red","orange","yellow","yellow","yellow","yellow","yellow")],
+               [Image.new("RGB",(64,64),c) for c in ("yellow","blue","blue","blue","blue","blue","blue","blue")]]
+        out=join_motion_clips(clips,fade_frames=2)
+        self.assertEqual(len(out),14)
+        self.assertNotEqual(out[6].getpixel((2,2)),out[7].getpixel((2,2)))
+
     def test_renders_real_mp4_with_audio(self):
         import av
         from PIL import Image
@@ -137,6 +146,9 @@ class VideoWorkerTests(unittest.TestCase):
             with av.open(str(target)) as mp4:
                 self.assertTrue(any(s.type == "video" for s in mp4.streams))
                 self.assertTrue(any(s.type == "audio" for s in mp4.streams))
+                video_stream=next(s for s in mp4.streams if s.type == "video")
+                self.assertEqual((video_stream.width,video_stream.height),(1280,720))
+                self.assertEqual(round(float(video_stream.average_rate)),24)
                 video_frames = sum(1 for f in mp4.decode(video=0))
                 self.assertGreaterEqual(video_frames, 170)
             self.assertTrue(calls)

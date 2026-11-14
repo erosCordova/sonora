@@ -17,6 +17,7 @@ import { toast } from "@/stores/toast";
 
 type Mode = "imagenes" | "manga" | "letra";
 type Aspect = "16:9" | "9:16";
+type VideoQuality = "alta" | "equilibrada";
 type Step = 1 | 2 | 3;
 type Project = {
   id: string; title: string; mode: string; aspect: string;
@@ -48,6 +49,7 @@ export function VideoStudio() {
   const [title, setTitle] = useState("Mi nuevo video");
   const [aspect, setAspect] = useState<Aspect>("16:9");
   const [duration, setDuration] = useState(15);
+  const [quality, setQuality] = useState<VideoQuality>("alta");
   const [script, setScript] = useState("");
   const [narration, setNarration] = useState(false);
   const [splitPanels, setSplitPanels] = useState(false);
@@ -56,7 +58,7 @@ export function VideoStudio() {
   const [sceneSync, setSceneSync] = useState<"uniform" | "music">("music");
   const [subtitles, setSubtitles] = useState(true);
   const [animationMode, setAnimationMode] = useState<"classic"|"framepack">("classic");
-  const [motionPrompt, setMotionPrompt] = useState("Gentle natural motion, subtle breeze, cinematic lighting, consistent character design");
+  const [motionPrompt, setMotionPrompt] = useState("The main subject visibly turns its head, blinks, and moves naturally. Clear, fluid physical motion, stable camera, consistent anatomy and lighting, cinematic detail.");
   const [songId, setSongId] = useState("");
   const [assets, setAssets] = useState<MediaAsset[]>([]);
   const [audio, setAudio] = useState<File | null>(null);
@@ -197,7 +199,7 @@ export function VideoStudio() {
     try {
       const form = new FormData();
       for (const [key, value] of Object.entries({
-        title: title.trim(), mode, aspect, duration: String(duration),
+        title: title.trim(), mode, aspect, duration: String(duration), quality,
         script, narration: String(narration), songId,
         splitPanels: String(mode==="manga" && splitPanels), readingOrder,
         multiVoice: String(narration && multiVoice), sceneSync, subtitles: String(subtitles), animationMode, motionPrompt,
@@ -413,6 +415,13 @@ export function VideoStudio() {
                 <option value={15}>15 segundos</option><option value={30}>30 segundos</option><option value={60}>60 segundos</option>
               </Select></Field>
             </div>
+            <Field label="Calidad de exportación">
+              <Select value={quality} onChange={(e)=>setQuality(e.target.value as VideoQuality)}>
+                <option value="alta">Alta · MP4 HD 720p, 24 FPS, audio 192 kbps</option>
+                <option value="equilibrada">Equilibrada · MP4 540p, 24 FPS, menor consumo</option>
+              </Select>
+              <p className="mt-2 text-xs leading-relaxed text-muted">La calidad alta utiliza hasta 3 clips generativos consecutivos con FramePack (aprox. 6 s únicos) y los ensambla en un video de 15, 30 o 60 s. Genera a 384 px y exporta reescalado a HD; no es inferencia nativa en 720p. La RTX 4050 de 6 GB puede tardar bastante o quedarse sin memoria.</p>
+            </Field>
             {mode !== "letra" && <div className="space-y-3 rounded-2xl border border-line bg-surface-2/55 p-4">
               <h3 className="text-sm font-bold">Tipo de movimiento</h3>
               <label className="flex cursor-pointer items-start gap-2 text-sm">
@@ -421,7 +430,7 @@ export function VideoStudio() {
               </label>
               <label className="flex cursor-pointer items-start gap-2 text-sm">
                 <input type="radio" name="motion-engine" checked={animationMode==="framepack"} disabled={!motor?.framepackReady} onChange={()=>setAnimationMode("framepack")} className="mt-1 accent-[var(--brand)]"/>
-                <span><strong>Movimiento por IA · FramePack (experimental)</strong><span className="block text-xs leading-relaxed text-muted">Genera una secuencia breve de la primera imagen y la utiliza en el video con sonido. Requiere FramePack y sus modelos instalados en ComfyUI. Puede agotar memoria en una GPU de 6 GB.</span></span>
+                <span><strong>Movimiento por IA · FramePack (experimental)</strong><span className="block text-xs leading-relaxed text-muted">En calidad alta genera hasta tres secuencias consecutivas de movimiento real (aprox. 6 s únicos) para el montaje con sonido. La duración final puede contener repeticiones; requiere FramePack y puede agotar 6 GB de VRAM.</span></span>
               </label>
               {!motor?.framepackReady && <p className="text-xs text-warn">La generación por IA aparecerá disponible cuando el complemento FramePack y todos sus modelos sean detectados en tu ComfyUI local.</p>}
               {animationMode==="framepack" && <Field label="¿Qué movimiento debe generar la IA?">
@@ -458,7 +467,7 @@ export function VideoStudio() {
               </div>
             </div>
             <p className="rounded-xl border border-line bg-surface-2 p-3 text-xs leading-relaxed text-muted">
-              {mode==="letra" ? "Se creará un video con fondos animados y la letra. No se generan escenas cinematográficas por IA." : "Se montarán imágenes y viñetas con movimientos de cámara, voces locales y cortes audiovisuales. La animación corporal por difusión, el reconocimiento OCR y la sincronización labial no están disponibles todavía."}
+              {mode==="letra" ? "Se creará un video lírico con fondos animados en HD de exportación. No se generan escenas cinematográficas por IA." : animationMode==="framepack" ? "La IA produce clips generativos breves. Sonora une los fotogramas y los ensambla con audio; el resultado puede repetir movimiento. Los 720p corresponden a la exportación reescalada, no a la resolución nativa del modelo." : "Animación de cámara de fotografías o manga y sonido en MP4. No hay movimiento corporal ni sincronización labial automática."}
             </p>
             <div className="flex flex-wrap justify-between gap-3 border-t border-line pt-4">
               <Button type="button" onClick={()=>setStep(2)}><ArrowLeft className="h-4 w-4"/>Volver</Button>

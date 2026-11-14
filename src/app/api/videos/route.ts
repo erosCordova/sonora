@@ -29,6 +29,7 @@ export async function POST(req: Request) {
     mode: get("mode") === "manga" ? "manga" : get("mode") === "letra" ? "letra" : "imagenes",
     aspect: get("aspect") === "9:16" ? "9:16" : "16:9",
     duration: Number(get("duration")),
+    quality: get("quality") === "equilibrada" ? "equilibrada" : "alta",
     script: get("script"),
     narration: get("narration") === "true",
     songId: get("songId") || null,

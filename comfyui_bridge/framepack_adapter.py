@@ -68,7 +68,8 @@ def probe_framepack(local_url: str) -> dict | None:
         return None
 
 
-def make_graph(image_name: str, prompt: str, weights: dict, seed: int | None = None) -> dict:
+def make_graph(image_name: str, prompt: str, weights: dict, seed: int | None = None,
+               *, seconds: float = 1.0, steps: int = 8) -> dict:
     if not image_name or "/" in image_name or "\\" in image_name:
         raise BridgeError("Nombre de imagen inseguro")
     prompt = prompt.strip()[:500]
@@ -76,6 +77,8 @@ def make_graph(image_name: str, prompt: str, weights: dict, seed: int | None = N
         raise BridgeError("Describe el movimiento deseado en al menos cuatro caracteres")
     if not all(weights.get(k) for k in ("model","vae","clipvision","clip1","clip2")):
         raise BridgeError("Los modelos de FramePack están incompletos")
+    if not 0.5 <= seconds <= 4.0 or not 4 <= steps <= 32:
+        raise BridgeError("Duración o pasos de FramePack fuera de los límites seguros")
     if seed is None:
         seed = random.SystemRandom().randint(1,2**31-1)
     # Resolución conservadora de 384 px y 1 segundo para la primera prueba.
@@ -99,10 +102,10 @@ def make_graph(image_name: str, prompt: str, weights: dict, seed: int | None = N
              "load_device":"offload_device","attention_mode":"sdpa"}},
         "12":{"class_type":"FramePackSampler","inputs":{"model":["11",0],
              "positive":["9",0],"negative":["10",0],"start_latent":["5",0],
-             "image_embeds":["7",0],"steps":8,"use_teacache":True,
+             "image_embeds":["7",0],"steps":steps,"use_teacache":True,
              "teacache_rel_l1_thresh":0.15,"cfg":1.0,"guidance_scale":10.0,
              "shift":0.0,"seed":seed,"latent_window_size":9,
-             "total_second_length":1.0,"gpu_memory_preservation":1.8,
+             "total_second_length":seconds,"gpu_memory_preservation":1.8,
              "sampler":"unipc_bh1"}},
         "13":{"class_type":"VAEDecodeTiled","inputs":{"samples":["12",0],
              "vae":["4",0],"tile_size":128,"overlap":32,
@@ -135,7 +138,8 @@ def upload_frame(local_url: str, image) -> str:
 
 
 def generate_frames(local_url: str, image, prompt: str, cancelled=lambda:False,
-                    progress=lambda _:None, deadline: int = 2400):
+                    progress=lambda _:None, deadline: int = 2400,
+                    *, seconds: float = 1.0, steps: int = 8):
     """Devuelve imágenes reales generadas, nunca los fotogramas originales repetidos."""
     from PIL import Image
     endpoint=_local_endpoint(local_url)
@@ -144,13 +148,15 @@ def generate_frames(local_url: str, image, prompt: str, cancelled=lambda:False,
         raise BridgeError("FramePack no está instalado o faltan los modelos de Hunyuan/SigCLIP")
     if cancelled():
         raise BridgeError("Generación cancelada antes de enviar el trabajo")
+    progress("Preparando imagen")
     name=upload_frame(endpoint,image)
-    workflow=make_graph(name,prompt,weights)
+    workflow=make_graph(name,prompt,weights,seconds=seconds,steps=steps)
     queued=_http(endpoint+"/prompt",method="POST",json_data={"prompt":workflow,"client_id":uuid.uuid4().hex},
                  limit=10000,timeout=30)
     prompt_id=queued.get("prompt_id")
     if not isinstance(prompt_id,str) or len(prompt_id)>100:
         raise BridgeError("ComfyUI rechazó el flujo experimental de FramePack")
+    progress("Cargando modelos y generando fotogramas")
     start=time.monotonic()
     history=None
     while time.monotonic()-start < deadline:
@@ -164,13 +170,14 @@ def generate_frames(local_url: str, image, prompt: str, cancelled=lambda:False,
                 raise BridgeError("ComfyUI informó un error de FramePack; revisa el registro local")
             if "outputs" in history:
                 break
-        progress(min(.4,(time.monotonic()-start)/deadline*.4))
+        # ComfyUI no publica aquí la fracción real de pasos: no inventar porcentajes.
         time.sleep(5)
     else:
         raise BridgeError("FramePack superó el límite de procesamiento; revisa GPU y memoria RAM")
     files=history.get("outputs",{}).get("14",{}).get("images",[])
     if not 2 <= len(files) <= 120:
         raise BridgeError("FramePack no produjo una secuencia válida de fotogramas")
+    progress("Recuperando fotogramas generados")
     frames=[]
     for file in files:
         if cancelled():
@@ -187,5 +194,5 @@ def generate_frames(local_url: str, image, prompt: str, cancelled=lambda:False,
         with Image.open(io.BytesIO(buf)) as item:
             item.load()
             frames.append(item.convert("RGB"))
-    progress(.45)
+    progress("Fotogramas recibidos")
     return frames

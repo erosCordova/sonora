@@ -53,6 +53,15 @@ class FramePackAdapterTests(unittest.TestCase):
         with self.assertRaises(BridgeError): make_graph("../secret.png","a person waving slowly",selected)
         with self.assertRaises(BridgeError): make_graph("ok.png","hi",selected)
 
+    def test_high_quality_graph_is_longer_and_has_more_sampling_steps(self):
+        weights=identify_framepack(fake_nodes())
+        graph=make_graph("sonora.png","subject turns head with natural motion",weights,
+                         seed=17,seconds=2.0,steps=18)
+        self.assertEqual(graph["12"]["inputs"]["total_second_length"],2.0)
+        self.assertEqual(graph["12"]["inputs"]["steps"],18)
+        with self.assertRaises(BridgeError):
+            make_graph("sonora.png","subject moves naturally",weights,seconds=5.0)
+
     def test_generator_returns_real_frames_from_local_history(self):
         image=Image.new("RGB",(120,90),"red")
         frames=[]
