@@ -241,6 +241,18 @@ test("video: crear proyecto, reclamar worker, subir MP4 y aislar usuarios", {
       json:{workerId,engine:"sonora-video",info:{backend:"Montaje local",capabilities:["images","mp4"]}}});
     assert.equal(h.response.status,200,JSON.stringify(h.data));
 
+    // No permitir generar con IA si el heartbeat local no tiene el modelo.
+    const checkForm=new FormData();
+    for(const [key,value] of Object.entries({
+      title:"FramePack experimental",mode:"imagenes",aspect:"16:9",duration:"15",
+      script:"",narration:"false",animationMode:"framepack",
+      motionPrompt:"A gentle breeze moves the hair and leaves slowly",
+    })) checkForm.set(key,value);
+    checkForm.append("files",new Blob([Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/R9sAAAAASUVORK5CYII=","base64")],{type:"image/png"}),"primera.png");
+    const unavailable=await call("/api/videos",{cookie:users[0],method:"POST",form:checkForm});
+    assert.equal(unavailable.response.status,422,JSON.stringify(unavailable.data));
+    assert.match(unavailable.data.error,/FramePack no está listo/);
+
     const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/R9sAAAAASUVORK5CYII=","base64");
     const wav=Buffer.alloc(44+2*44100);
     wav.write("RIFF",0);wav.writeUInt32LE(wav.length-8,4);

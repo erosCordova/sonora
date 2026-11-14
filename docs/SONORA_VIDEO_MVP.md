@@ -24,3 +24,25 @@ Las fuentes y el MP4 se almacenan **temporalmente en PostgreSQL de Render**, que
 ## Videoclips líricos
 
 La opción **Video lírico** del estudio puede crear un MP4 con fondos gráficos animados y letras sin subir imágenes. Selecciona una canción de tu biblioteca (la letra puede cargarse desde el propio registro) o sube un audio y escribe la letra. La duración disponible sigue siendo de 15, 30 o 60 segundos. Esto no equivale a generar escenas cinematográficas por difusión.
+
+## Animación generativa experimental con FramePack
+
+Sonora ofrece un segundo modo de movimiento solamente cuando ComfyUI confirma que FramePack y sus archivos de modelos están instalados. No hay descarga automática ni conexión a APIs pagadas.
+
+El motor experimental crea una secuencia de aproximadamente un segundo de la primera imagen del proyecto; el montaje final repite esta secuencia en un bucle de ida y vuelta e incorpora audio y subtítulos. No representa todavía un videoclip cinematográfico completo ni anima automáticamente todas las imágenes del manga.
+
+### Preparación del equipo local
+
+1. Conservar ACE-Step y su flujo musical.
+2. Instalar el complemento independiente ComfyUI-FramePackWrapper desde ComfyUI Manager. El propio autor lo marca como trabajo en desarrollo.
+3. Instalar los pesos que solicita ese complemento: transformer FramePackI2V_HY (preferentemente FP8), Hunyuan Video VAE, codificadores clip_l y llava_llama3, más SigCLIP vision. Guardarlos en las categorías difusión, vae, text_encoders y clip_vision de ComfyUI.
+4. Reiniciar ComfyUI y conectar el panel Sonora. El procesador solo anuncia FramePack cuando todos los nodos y modelos aparecen en su lista local; en caso contrario la opción permanecerá desactivada.
+5. Probar primero con una única fotografía o viñeta y un prompt sencillo.
+
+Advertencia: aunque FramePack anuncia compatibilidad desde 6 GB de VRAM, su ejecución también necesita muchos recursos de RAM y disco. No se garantiza que funcione en una RTX 4050 de 6 GB con 16 GB de RAM hasta realizar una generación auténtica. La animación clásica sigue disponible sin esos modelos. No ejecutar música ACE-Step y FramePack al mismo tiempo.
+
+Fuentes:
+- https://github.com/lllyasviel/FramePack
+- https://github.com/kijai/ComfyUI-FramePackWrapper
+
+El adaptador utiliza únicamente el ComfyUI del equipo, no acepta endpoints remotos de usuarios ni ejecuta código suministrado en prompts. Si FramePack falla, el trabajo informa del error sin simular una generación por IA.
