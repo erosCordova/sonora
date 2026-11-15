@@ -71,7 +71,9 @@ export type NewVideo = {
   sceneSync: "uniform" | "music";
   subtitles: boolean;
   animationMode: "classic" | "framepack";
+  fullMotion: boolean;
   motionPrompt: string;
+  scenePrompts: string[];
 };
 
 export async function createVideo(userId: string, input: NewVideo, attachments: {name:string; bytes:Buffer}[]) {
@@ -80,10 +82,14 @@ export async function createVideo(userId: string, input: NewVideo, attachments: 
   const activeWorkers = await db.select({ id: workers.id, info: workers.info }).from(workers)
     .where(and(eq(workers.engine, VIDEO_ENGINE), gte(workers.lastSeenAt, cutoff))).limit(10);
   if (!activeWorkers.length) throw new VideoError("El motor de video local está desconectado. Actualiza el complemento de Sonora en ComfyUI y vuelve a conectarlo.", 503);
+  if (input.fullMotion && input.animationMode !== "framepack")
+    throw new VideoError("El movimiento continuo requiere FramePack", 422);
   if (input.animationMode === "framepack") {
     if (input.mode === "letra") throw new VideoError("El video lírico usa fondos animados, no FramePack");
     if (!activeWorkers.some((worker) => Array.isArray(worker.info.capabilities) && worker.info.capabilities.includes("framepack")))
       throw new VideoError("FramePack no está listo en ComfyUI: instala el complemento y los modelos primero", 422);
+    if (input.fullMotion && !activeWorkers.some((worker) => Array.isArray(worker.info.capabilities) && worker.info.capabilities.includes("framepack-full-v1")))
+      throw new VideoError("Actualiza el complemento Sonora en ComfyUI para generar movimiento durante todo el video", 422);
     if (input.motionPrompt.trim().length < 4)
       throw new VideoError("Describe el movimiento para la generación con IA", 422);
   }
@@ -179,5 +185,7 @@ export async function videoMotorStatus() {
     db.select({ n: count() }).from(jobs)
       .where(and(eq(jobs.engine,VIDEO_ENGINE),eq(jobs.status,"running"))),
   ]);
-  return { online: online.length > 0, framepackReady: online.some((w) => Array.isArray(w.info.capabilities) && w.info.capabilities.includes("framepack")), pending: pending[0]?.n ?? 0, running: running[0]?.n ?? 0 };
+  return { online: online.length > 0, framepackReady: online.some((w) => Array.isArray(w.info.capabilities) && w.info.capabilities.includes("framepack")),
+    framepackFullReady: online.some((w) => Array.isArray(w.info.capabilities) && w.info.capabilities.includes("framepack-full-v1")),
+    pending: pending[0]?.n ?? 0, running: running[0]?.n ?? 0 };
 }

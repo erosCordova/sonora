@@ -46,6 +46,16 @@ jobs:
           WORKER_TOKEN: github-actions-token-de-prueba
           SONORA_REQUIRE_REAL_MP3: '1'
 
+  windows-voice:
+    name: Windows - voces locales
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m unittest tests.test_windows_voice -v
+
   integration:
     name: API + PostgreSQL - pruebas integrales
     runs-on: ubuntu-latest
