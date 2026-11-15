@@ -186,6 +186,7 @@ class VideoWorkerTests(unittest.TestCase):
         bridge=Mock()
         bridge.stop=threading.Event()
         bridge.local_url="http://127.0.0.1:8188"
+        bridge.job=None
         worker=VideoWorker(bridge)
         worker.framepack_ready=True
         worker._get=Mock(return_value=b"bundle")
@@ -202,6 +203,61 @@ class VideoWorkerTests(unittest.TestCase):
         gpu.assert_not_called()
         self.assertTrue(any(call.args[0].endswith("/fail") for call in worker._post.call_args_list))
         self.assertIn("supera",worker.last_error)
+
+    def test_full_video_worker_flow_with_simulated_framepack(self):
+        import threading
+        from unittest.mock import Mock, patch
+        import av
+        from PIL import Image
+        from comfyui_bridge.video_worker import VideoWorker
+        bridge=Mock()
+        bridge.stop=threading.Event()
+        bridge.local_url="http://127.0.0.1:8188"
+        bridge.job=None
+        worker=VideoWorker(bridge)
+        worker.framepack_ready=True
+        worker._get=Mock(return_value=b"bundle")
+        worker._post=Mock(return_value={})
+        prompts=[]
+        uploads=[]
+        job={"id":"video-test","attempts":1,"kind":"video","params":{"duration":15,
+             "quality":"equilibrada","narration":True,"script":"Luna: Hola.\nSol: Vamos.",
+             "multiVoice":True,"animationMode":"framepack","fullMotion":True,
+             "motionPrompt":"The dogs talk", "scenePrompts":["The dogs wave","The dogs walk"]}}
+        def voice(text, output, **kwargs):
+            with wave.open(str(output),"wb") as track:
+                track.setnchannels(1); track.setsampwidth(2); track.setframerate(8000)
+                track.writeframes(b"\0\0" * 8000)
+            return [{"start":0,"end":.5,"speaker":"Luna","text":"Hola."},
+                    {"start":.5,"end":1,"speaker":"Sol","text":"Vamos."}]
+        def generate(_url, _image, prompt, **kwargs):
+            prompts.append(prompt)
+            return [Image.new("RGB",(16,16),(len(prompts)*20,i,0)) for i in range(60)]
+        class Response:
+            def __enter__(self): return self
+            def __exit__(self,*_): pass
+            def read(self,_limit): return b'{"videoId":"video-test"}'
+        def upload(request, **kwargs):
+            uploads.append(request.data)
+            return Response()
+        with patch("comfyui_bridge.video_worker.unpack_bundle",return_value=[("image",Path("scene.png"))]),\
+             patch("comfyui_bridge.video_worker.load_images",return_value=[Image.new("RGB",(16,16),"red"),Image.new("RGB",(16,16),"blue")]),\
+             patch("comfyui_bridge.video_worker.windows_voice",side_effect=voice),\
+             patch("comfyui_bridge.framepack_adapter.generate_frames",side_effect=generate),\
+             patch("comfyui_bridge.video_worker.urlopen",side_effect=upload):
+            worker._process(job)
+        self.assertEqual(worker.last_error,"")
+        self.assertGreater(len(prompts),3)
+        self.assertIn("The dogs wave",prompts)
+        self.assertIn("The dogs walk",prompts)
+        self.assertEqual(len(uploads),1)
+        marker=b"Content-Type: video/mp4\r\n\r\n"
+        start=uploads[0].index(marker)+len(marker)
+        end=uploads[0].rindex(b"\r\n--sonora-")
+        with av.open(io.BytesIO(uploads[0][start:end])) as result:
+            video=next(stream for stream in result.streams if stream.type=="video")
+            self.assertAlmostEqual(float(video.duration*video.time_base),15,places=1)
+            self.assertTrue(any(stream.type=="audio" for stream in result.streams))
 
     def test_full_motion_video_keeps_frames_in_order(self):
         import av
