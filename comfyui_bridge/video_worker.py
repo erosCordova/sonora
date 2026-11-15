@@ -30,6 +30,7 @@ from .worker import REMOTE, _http, BridgeError
 log = logging.getLogger("sonora.video")
 MAX_INPUT = 25 * 1024 * 1024
 MAX_VIDEO = 40 * 1024 * 1024
+MAX_SECONDS = 300  # Límite operativo temporal por tamaño de MP4 y recursos locales.
 
 
 def unpack_bundle(blob: bytes, directory: Path, allow_no_images: bool = False) -> list[tuple[str, Path]]:
@@ -221,7 +222,7 @@ def parse_dialogue(script: str):
             speaker, message = "Narrador", line
         if message:
             result.append({"speaker":speaker,"text":message})
-    return result[:64]
+    return result[:256]
 
 
 def dialogue_caption(timeline, timestamp: float):
@@ -349,7 +350,7 @@ def windows_voice(text: str, output: Path, multi_voice: bool = False, max_second
         cmd = base64.b64encode(script.encode("utf-16le")).decode("ascii")
         try:
             result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", cmd],
-                                    capture_output=True, timeout=180)
+                                    capture_output=True, timeout=600)
         except (OSError, subprocess.TimeoutExpired) as e:
             raise BridgeError("No se pudo iniciar la voz de Windows") from e
         if result.returncode != 0 or any(not track.is_file() or track.stat().st_size < 44 for track in tracks):
@@ -400,7 +401,7 @@ def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack:
     from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageFilter
 
     if not images: raise BridgeError("No hay imágenes para crear el video")
-    if seconds not in (15, 30, 60): raise BridgeError("Duración de video no compatible")
+    if not 15 <= seconds <= MAX_SECONDS: raise BridgeError("La duración debe estar entre 15 segundos y 5 minutos")
     if quality not in ("alta", "equilibrada"):
         raise BridgeError("Perfil de calidad de video inválido")
     if full_motion and (not generated_motion or len(images) < seconds * 30):
@@ -438,7 +439,7 @@ def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack:
                           {"preset":"fast","crf":"22","maxrate":"2700k","bufsize":"5400k"})
         except (av.AVError, ValueError, AttributeError):
             vs = mux.add_stream("mpeg4", rate=fps)
-            vs.bit_rate = 3_600_000 if quality == "alta" else 2_200_000
+            vs.bit_rate = min(3_000_000 if quality == "alta" else 2_000_000, int(275_000_000 / seconds))
         vs.width, vs.height = width, height
         vs.pix_fmt = "yuv420p"
         audio = mux.add_stream("aac", rate=44100)
@@ -574,7 +575,7 @@ def append_motion_clip(paths: list[Path], clip, directory: Path, *, fade_frames:
 def generate_full_motion(source_images, directory: Path, seconds: int, generate_clip,
                          *, progress=lambda _: None, cancelled=lambda: False):
     """Genera fotogramas nuevos hasta cubrir la duración; nunca los repite en bucle."""
-    if not source_images or seconds not in (15, 30, 60):
+    if not source_images or not 15 <= seconds <= MAX_SECONDS:
         raise BridgeError("No hay escenas o la duración no es compatible")
     directory.mkdir(parents=True, exist_ok=True)
     target = seconds * 30
@@ -586,7 +587,7 @@ def generate_full_motion(source_images, directory: Path, seconds: int, generate_
         if cancelled():
             raise BridgeError("La generación fue cancelada")
         # Un límite defensivo evita trabajos infinitos si el modelo devuelve secuencias anómalas.
-        if number >= 100:
+        if number >= max(100, seconds * 2):
             raise BridgeError("FramePack produjo clips demasiado cortos para completar el video")
         scene = min(len(source_images) - 1, len(paths) * len(source_images) // target)
         source = source_images[scene] if scene != previous_scene or last_frame is None else last_frame
@@ -686,6 +687,10 @@ class VideoWorker:
             if job.get("kind")!="video": raise BridgeError("Se recibió una tarea incompatible")
             params=job.get("params") or {}
             seconds=int(params.get("duration",30))
+            if seconds != 0 and not 15 <= seconds <= MAX_SECONDS:
+                raise BridgeError("La duración debe estar entre 15 segundos y 5 minutos")
+            if seconds == 0 and not params.get("narration"):
+                raise BridgeError("La duración automática necesita diálogo narrado")
             quality=str(params.get("quality") or "alta")
             if quality not in ("alta", "equilibrada"):
                 raise BridgeError("Perfil de video no compatible")
@@ -728,7 +733,14 @@ class VideoWorker:
                                {"stage":"Generando y comprobando las voces del diálogo","progress":None},attempt)
                     voice=root/"voz.wav"
                     dialogue_timeline = windows_voice(str(params.get("script") or ""), voice,
-                        multi_voice=bool(params.get("multiVoice")), max_seconds=seconds)
+                        multi_voice=bool(params.get("multiVoice")), max_seconds=seconds or MAX_SECONDS)
+                    if seconds == 0:
+                        import math
+                        seconds = max(15, math.ceil(dialogue_timeline[-1]["end"] + 2))
+                        if seconds > MAX_SECONDS:
+                            raise BridgeError("El diálogo supera los 5 minutos; divide el guion en capítulos")
+                        self._post(f"/api/worker/jobs/{job_id}/progress",
+                                   {"stage":f"Duración calculada a partir del diálogo: {seconds} s","progress":None},attempt)
                 generated_motion = False
                 full_motion = params.get("fullMotion") is True
                 if full_motion and params.get("animationMode") != "framepack":
