@@ -152,7 +152,7 @@ export async function finalizeVideoJob(job: Job, file: Buffer, durationSec: numb
   if (!file.length || file.length > 40 * 1024 * 1024 || file.toString("ascii", 4, 8) !== "ftyp") {
     throw new VideoError("No se recibió un MP4 válido o supera los 40 MB", 422);
   }
-  if (!(durationSec >= 1 && durationSec <= 65)) throw new VideoError("Duración de MP4 inválida", 422);
+  if (!(durationSec >= 1 && durationSec <= 305)) throw new VideoError("Duración de MP4 inválida", 422);
   const [video] = await db.select().from(videos).where(eq(videos.jobId, job.id)).limit(1);
   if (!video) throw new VideoError("Proyecto de video no encontrado", 404);
   const outputKey = `${job.userId}/video-output/${video.id}.mp4`;
