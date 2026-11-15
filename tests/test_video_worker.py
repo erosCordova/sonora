@@ -21,6 +21,16 @@ def make_bundle(files):
 
 
 class VideoWorkerTests(unittest.TestCase):
+    def test_automatic_duration_uses_real_dialogue_end(self):
+        from comfyui_bridge.video_worker import automatic_video_seconds
+        self.assertEqual(automatic_video_seconds([{"end": 68.25}]), 71)
+        self.assertEqual(automatic_video_seconds([{"end": 4.0}]), 15)
+        self.assertEqual(automatic_video_seconds([{"end": 298.0}]), 300)
+        with self.assertRaisesRegex(BridgeError, "5 minutos"):
+            automatic_video_seconds([{"end": 299.1}])
+        with self.assertRaisesRegex(BridgeError, "No hay diálogo"):
+            automatic_video_seconds([])
+
     def test_image_manga_archive_bundle(self):
         from PIL import Image
         scene = Image.new("RGB", (100, 100), "purple")
