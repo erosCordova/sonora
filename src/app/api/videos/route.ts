@@ -44,7 +44,7 @@ export async function POST(req: Request) {
     scenePrompts: String(form.get("scenePrompts") ?? "").split(/\r?\n/).map((line) => line.trim()),
   };
   if (input.title.length < 2) return jsonError("Indica un título de al menos dos caracteres", 422);
-  if (![15, 30, 60].includes(input.duration)) return jsonError("Selecciona 15, 30 o 60 segundos", 422);
+  if (!(input.duration === 0 && input.narration) && !(Number.isInteger(input.duration) && input.duration >= 15 && input.duration <= 300)) return jsonError("Selecciona duración automática con diálogo o una duración de 15 a 300 segundos", 422);
   if (input.script.length > 3000) return jsonError("El guion no puede superar 3000 caracteres", 422);
   if (input.scenePrompts.length > 12 || input.scenePrompts.some((line) => line.length > 500 || (line.length > 0 && line.length < 4)))
     return jsonError("Usa hasta 12 instrucciones de escena de entre 4 y 500 caracteres", 422);
