@@ -39,11 +39,15 @@ export async function POST(req: Request) {
     sceneSync: get("sceneSync") === "music" ? "music" : "uniform",
     subtitles: get("subtitles") !== "false",
     animationMode: get("animationMode") === "framepack" ? "framepack" : "classic",
+    fullMotion: get("fullMotion") === "true",
     motionPrompt: get("motionPrompt").slice(0,500),
+    scenePrompts: String(form.get("scenePrompts") ?? "").split(/\r?\n/).map((line) => line.trim()),
   };
   if (input.title.length < 2) return jsonError("Indica un título de al menos dos caracteres", 422);
   if (![15, 30, 60].includes(input.duration)) return jsonError("Selecciona 15, 30 o 60 segundos", 422);
   if (input.script.length > 3000) return jsonError("El guion no puede superar 3000 caracteres", 422);
+  if (input.scenePrompts.length > 12 || input.scenePrompts.some((line) => line.length > 500 || (line.length > 0 && line.length < 4)))
+    return jsonError("Usa hasta 12 instrucciones de escena de entre 4 y 500 caracteres", 422);
   const files = form.getAll("files");
   if ((input.mode !== "letra" && !files.length) || files.length > 13 || files.some((f) => !(f instanceof File))) {
     return jsonError("Sube entre 1 y 12 imágenes o páginas, y opcionalmente una pista de audio", 422);

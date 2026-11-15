@@ -18,6 +18,7 @@ import tempfile
 import threading
 import time
 import uuid
+import wave
 import zipfile
 from fractions import Fraction
 from pathlib import Path
@@ -223,6 +224,18 @@ def parse_dialogue(script: str):
     return result[:64]
 
 
+def dialogue_caption(timeline, timestamp: float):
+    """Devuelve solo la línea cuya voz se escucha en ese instante."""
+    from bisect import bisect_right
+    if not timeline:
+        return ""
+    index = bisect_right([entry["start"] for entry in timeline], timestamp) - 1
+    if index < 0 or timestamp >= timeline[index]["end"]:
+        return ""
+    entry = timeline[index]
+    return f"{entry['speaker']}: {entry['text']}"
+
+
 def scene_cuts(music, seconds: int, fps: int, scenes: int, sync: str = "uniform"):
     """Escoge fronteras de escenas cercanas a transitorios de audio, sin ML pesado."""
     import numpy as np
@@ -255,8 +268,52 @@ def scene_cuts(music, seconds: int, fps: int, scenes: int, sync: str = "uniform"
 
 
 
-def windows_voice(text: str, output: Path, multi_voice: bool = False):
-    """Narración local con Microsoft SAPI; no comparte texto con servicios externos."""
+def assemble_dialogue(dialogue, tracks, output: Path, max_seconds: int | None = None):
+    """Une las voces y devuelve los tiempos reales de cada línea para los subtítulos."""
+    if not dialogue or len(dialogue) != len(tracks):
+        raise BridgeError("No se recibieron todas las líneas de diálogo")
+    timeline = []
+    try:
+        with wave.open(str(output), "wb") as destination:
+            params = None
+            position = 0
+            for i, (entry, path) in enumerate(zip(dialogue, tracks)):
+                with wave.open(str(path), "rb") as source:
+                    current = (source.getnchannels(), source.getsampwidth(), source.getframerate())
+                    if source.getcomptype() != "NONE" or current[1] not in (1, 2, 3, 4):
+                        raise BridgeError("El formato de voz de Windows no es compatible")
+                    if params is None:
+                        params = current
+                        destination.setnchannels(current[0])
+                        destination.setsampwidth(current[1])
+                        destination.setframerate(current[2])
+                    elif current != params:
+                        raise BridgeError("Las voces generadas tienen formatos incompatibles")
+                    channels, width, rate = current
+                    if i:
+                        pause = int(rate * 0.25)
+                        silence = b"\x80" if width == 1 else b"\x00"
+                        destination.writeframes(silence * pause * channels * width)
+                        position += pause
+                    count = source.getnframes()
+                    if not count:
+                        raise BridgeError("Una línea de diálogo no produjo audio")
+                    if max_seconds is not None and position + count > max_seconds * rate:
+                        raise BridgeError(f"El diálogo supera los {max_seconds} segundos. Acorta el guion antes de generar el video.")
+                    start = position / rate
+                    destination.writeframes(source.readframes(count))
+                    position += count
+                    timeline.append({"start": start, "end": position / rate,
+                                     "speaker": entry["speaker"], "text": entry["text"]})
+    except BridgeError:
+        raise
+    except (OSError, wave.Error, EOFError) as e:
+        raise BridgeError("No se pudieron unir las voces generadas por Windows") from e
+    return timeline
+
+
+def windows_voice(text: str, output: Path, multi_voice: bool = False, max_seconds: int | None = None):
+    """Genera una pista por línea con Microsoft SAPI y conserva sus tiempos reales."""
     if sys.platform != "win32":
         raise BridgeError("La narración local requiere Windows con voces instaladas")
     # Los datos (nombres/textos) viajan en Base64, nunca se interpolan
@@ -265,35 +322,39 @@ def windows_voice(text: str, output: Path, multi_voice: bool = False):
     dialogue = parse_dialogue(text)
     if not dialogue:
         raise BridgeError("El guion está vacío")
-    payload = base64.b64encode(json.dumps(dialogue,ensure_ascii=False).encode("utf8")).decode("ascii")
-    script = (
-        "Add-Type -AssemblyName System.Speech; "
-        "$speaker=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-        "$voices=@($speaker.GetInstalledVoices() | ForEach-Object {$_.VoiceInfo.Name}); "
-        "if($voices.Length -lt 1){throw 'No hay voces instaladas'}; "
-        "$speaker.SetOutputToWaveFile('" + str(output).replace("'", "''") + "'); "
-        "$entries=([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + payload + "'))|ConvertFrom-Json); "
-        "$assigned=@{}; $next=0; "
-        "foreach($entry in $entries){ "
-        "$key=([string]$entry.speaker).ToLowerInvariant(); "
-        "if(-not $assigned.ContainsKey($key)){ $assigned[$key]=$next; $next++ }; "
-        + (
-            "$which=[int]($assigned[$key] % $voices.Length); "
-            "$speaker.SelectVoice($voices[$which]); "
-            "$speaker.Rate=[int]((($assigned[$key] % 5)-2)); "
-            if multi_voice else "$speaker.SelectVoice($voices[0]); $speaker.Rate=0; "
-        ) +
-        "$speaker.Speak([string]$entry.text); "
-        "}; $speaker.Dispose()"
-    )
-    cmd = base64.b64encode(script.encode("utf-16le")).decode("ascii")
-    try:
-        result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", cmd],
-                                capture_output=True, timeout=180)
-    except (OSError, subprocess.TimeoutExpired) as e:
-        raise BridgeError("No se pudo iniciar la voz de Windows") from e
-    if result.returncode != 0 or not output.is_file() or output.stat().st_size < 1024:
-        raise BridgeError("Windows no pudo generar la narración. Comprueba las voces instaladas en Configuración > Voz")
+    with tempfile.TemporaryDirectory(prefix="sonora-voz-", dir=output.parent) as directory:
+        tracks = [Path(directory) / f"{i:03d}.wav" for i in range(len(dialogue))]
+        entries = [{**item, "path": str(track)} for item, track in zip(dialogue, tracks)]
+        payload = base64.b64encode(json.dumps(entries,ensure_ascii=False).encode("utf8")).decode("ascii")
+        script = (
+            "Add-Type -AssemblyName System.Speech; "
+            "$speaker=New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+            "$voices=@($speaker.GetInstalledVoices() | ForEach-Object {$_.VoiceInfo.Name}); "
+            "if($voices.Length -lt 1){throw 'No hay voces instaladas'}; "
+            "$entries=([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + payload + "'))|ConvertFrom-Json); "
+            "$assigned=@{}; $next=0; "
+            "foreach($entry in $entries){ "
+            "$key=([string]$entry.speaker).ToLowerInvariant(); "
+            "if(-not $assigned.ContainsKey($key)){ $assigned[$key]=$next; $next++ }; "
+            + (
+                "$which=[int]($assigned[$key] % $voices.Length); "
+                "$speaker.SelectVoice($voices[$which]); "
+                "$speaker.Rate=[int]((($assigned[$key] % 5)-2)); "
+                if multi_voice else "$speaker.SelectVoice($voices[0]); $speaker.Rate=0; "
+            ) +
+            "$speaker.SetOutputToWaveFile([string]$entry.path); "
+            "$speaker.Speak([string]$entry.text); $speaker.SetOutputToNull(); "
+            "}; $speaker.Dispose()"
+        )
+        cmd = base64.b64encode(script.encode("utf-16le")).decode("ascii")
+        try:
+            result = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", cmd],
+                                    capture_output=True, timeout=180)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise BridgeError("No se pudo iniciar la voz de Windows") from e
+        if result.returncode != 0 or any(not track.is_file() or track.stat().st_size < 44 for track in tracks):
+            raise BridgeError("Windows no pudo generar la narración. Comprueba las voces instaladas en Configuración > Voz")
+        return assemble_dialogue(dialogue, tracks, output, max_seconds=max_seconds)
 
 
 def decode_audio(path: Path, seconds: int):
@@ -329,7 +390,8 @@ def decode_audio(path: Path, seconds: int):
 def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack: Path | None,
                  narration: Path | None, script: str = "", cancelled=lambda: False, progress=lambda _: None,
                  scene_sync: str = "uniform", subtitles: bool = True, lyrics_mode: bool = False,
-                 generated_motion: bool = False, quality: str = "alta"):
+                 generated_motion: bool = False, quality: str = "alta", full_motion: bool = False,
+                 dialogue_timeline=None):
     """Produce MP4 real con paneo/zoom y audio AAC. No requiere FFmpeg.exe."""
     import av
     import numpy as np
@@ -341,6 +403,8 @@ def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack:
     if seconds not in (15, 30, 60): raise BridgeError("Duración de video no compatible")
     if quality not in ("alta", "equilibrada"):
         raise BridgeError("Perfil de calidad de video inválido")
+    if full_motion and (not generated_motion or len(images) < seconds * 30):
+        raise BridgeError("No hay suficientes fotogramas generados para cubrir el video completo")
     # HD real como resolución de archivo, pero las imágenes de IA parten de 384 px.
     # Un reescalado no convierte la inferencia de FramePack en generación HD nativa.
     fps = 24
@@ -357,12 +421,12 @@ def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack:
     spoken = decode_audio(narration, seconds) if narration else np.zeros_like(music)
     # Para muchas páginas, conservar una cantidad legible de escenas.
     scenes = min(len(images), max(1, seconds))
-    if len(images) > scenes:
+    if not generated_motion and len(images) > scenes:
         indices = [round(i*(len(images)-1)/max(1,scenes-1)) for i in range(scenes)]
         images = [images[index] for index in indices]
         if lyrics_mode and lines:
             lines = [lines[index] for index in indices if index < len(lines)]
-    boundaries = scene_cuts(music if soundtrack else None, seconds, fps, len(images), scene_sync)
+    boundaries = [] if generated_motion else scene_cuts(music if soundtrack else None, seconds, fps, len(images), scene_sync)
     pcm = music * (0.45 if narration else 0.9) + spoken * 0.95
     peak = float(np.max(np.abs(pcm)))
     if peak > 0.97: pcm *= 0.97 / peak
@@ -387,22 +451,29 @@ def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack:
             if idx in cache:
                 cache.move_to_end(idx)
                 return cache[idx]
-            frame_img = ImageOps.fit(images[idx], (int(width * 1.12), int(height * 1.12)),
-                                     method=Image.Resampling.LANCZOS)
+            item = images[idx]
+            if isinstance(item, Path):
+                with Image.open(item) as source:
+                    frame_img = ImageOps.fit(source.convert("RGB"), (int(width * 1.12), int(height * 1.12)),
+                                             method=Image.Resampling.LANCZOS)
+            else:
+                frame_img = ImageOps.fit(item, (int(width * 1.12), int(height * 1.12)),
+                                         method=Image.Resampling.LANCZOS)
             cache[idx] = frame_img
             if len(cache) > 6:
                 cache.popitem(last=False)
             return frame_img
         # Transición de solapamiento: la repetición enlaza el final con
         # el principio sin saltos bruscos ni reproducir movimientos al revés.
-        overlap = min(12, max(0, len(images) // 6)) if generated_motion else 0
+        overlap = min(12, max(0, len(images) // 6)) if generated_motion and not full_motion else 0
         period = max(1, len(images) - overlap)
         for index in range(total):
             if cancelled(): raise BridgeError("La generación fue cancelada")
             if generated_motion:
                 # FramePack produce ~30 fotogramas/s: muestrear en orden a 24 FPS
                 # en vez de saltar 2 índices o reproducir el clip al revés.
-                phase = int((index * 30 / fps) % period)
+                source_index = int(index * 30 / fps)
+                phase = source_index if full_motion else source_index % period
                 src_idx = phase
                 img = prepared(src_idx)
                 if overlap and phase < overlap:
@@ -425,8 +496,12 @@ def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack:
             canvas = img.crop((left, top, left+crop_w, top+crop_h)).resize((width,height),Image.Resampling.LANCZOS)
             if quality == "alta":
                 canvas = canvas.filter(ImageFilter.UnsharpMask(radius=1.0, percent=65, threshold=3))
-            if lines:
+            subtitle = ""
+            if subtitles and dialogue_timeline:
+                subtitle = dialogue_caption(dialogue_timeline, index / fps)[:90]
+            elif lines:
                 subtitle = lines[src_idx % len(lines)][:90]
+            if subtitle:
                 d = ImageDraw.Draw(canvas)
                 d.rectangle((0,height-64,width,height),fill=(16,14,31))
                 d.text((15,height-48),subtitle,fill=(255,255,255),font=font)
@@ -471,6 +546,59 @@ def join_motion_clips(clips, fade_frames: int = 10):
         else:
             result.extend(clip)
     return result
+
+
+def append_motion_clip(paths: list[Path], clip, directory: Path, *, fade_frames: int = 10,
+                       cancelled=lambda: False):
+    """Guarda cada clip en disco y combina solo los fotogramas de transición."""
+    from PIL import Image, ImageOps
+    if len(clip) < 20:
+        raise BridgeError("FramePack devolvió un clip demasiado corto para el modo continuo")
+    n = min(fade_frames, len(paths) // 4, len(clip) // 4)
+    for i in range(n):
+        if cancelled():
+            raise BridgeError("La generación fue cancelada")
+        path = paths[-n + i]
+        with Image.open(path) as source:
+            old = source.convert("RGB")
+        new = ImageOps.fit(clip[i].convert("RGB"), old.size)
+        Image.blend(old, new, (i + 1) / (n + 1)).save(path, format="PNG", compress_level=1)
+    for frame in clip[n:]:
+        if cancelled():
+            raise BridgeError("La generación fue cancelada")
+        path = directory / f"{len(paths):06d}.png"
+        frame.convert("RGB").save(path, format="PNG", compress_level=1)
+        paths.append(path)
+
+
+def generate_full_motion(source_images, directory: Path, seconds: int, generate_clip,
+                         *, progress=lambda _: None, cancelled=lambda: False):
+    """Genera fotogramas nuevos hasta cubrir la duración; nunca los repite en bucle."""
+    if not source_images or seconds not in (15, 30, 60):
+        raise BridgeError("No hay escenas o la duración no es compatible")
+    directory.mkdir(parents=True, exist_ok=True)
+    target = seconds * 30
+    paths: list[Path] = []
+    last_frame = None
+    previous_scene = -1
+    number = 0
+    while len(paths) < target:
+        if cancelled():
+            raise BridgeError("La generación fue cancelada")
+        # Un límite defensivo evita trabajos infinitos si el modelo devuelve secuencias anómalas.
+        if number >= 100:
+            raise BridgeError("FramePack produjo clips demasiado cortos para completar el video")
+        scene = min(len(source_images) - 1, len(paths) * len(source_images) // target)
+        source = source_images[scene] if scene != previous_scene or last_frame is None else last_frame
+        number += 1
+        clip = generate_clip(source, number, min(len(paths) / 30, seconds), scene)
+        if len(clip) < 20:
+            raise BridgeError("FramePack devolvió un clip demasiado corto para el modo continuo")
+        last_frame = clip[-1].copy()
+        append_motion_clip(paths, clip, directory, cancelled=cancelled)
+        previous_scene = scene
+        progress(f"FramePack: {min(len(paths) / 30, seconds):.1f}/{seconds} s generados · clip {number}")
+    return paths[:target]
 
 
 class VideoWorker:
@@ -522,7 +650,7 @@ class VideoWorker:
                     self.framepack_ready = bool(probe_framepack(self.bridge.local_url)) if self.bridge.local_url else False
                 payload={"workerId":self.worker_id,"name":"Editor de video local",
                     "engine":"sonora-video","info":{"backend":"Montaje local","capabilities":["images","manga","speech","mp4","panels","character-voices","music-sync","lyric-video"]
-                      + (["framepack"] if self.framepack_ready else [])},
+                      + (["framepack", "framepack-full-v1"] if self.framepack_ready else [])},
                     "currentJobId":current["id"] if current else None,
                     "currentJobAttempt":current["attempts"] if current else None}
                 response=self._post("/api/worker/heartbeat",payload)
@@ -585,40 +713,6 @@ class VideoWorker:
                         if len(panels) >= 80:
                             break
                     images = panels[:80]
-                generated_motion = False
-                if params.get("animationMode") == "framepack":
-                    if params.get("mode") == "letra":
-                        raise BridgeError("Los videos líricos no admiten FramePack")
-                    if self.bridge.job:
-                        raise BridgeError("Tu GPU está ocupada generando música; inténtalo cuando termine")
-                    from .framepack_adapter import generate_frames
-                    if not self.framepack_ready:
-                        raise BridgeError("FramePack no está instalado o faltan sus modelos; utiliza montaje clásico")
-                    # La calidad alta obtiene hasta 3 fragmentos únicos enlazados.
-                    # Con 6 GB son pasadas SECUENCIALES: nunca se carga más de
-                    # una inferencia simultánea y no hay promesa de 15 s únicos.
-                    clip_count = 3 if quality == "alta" else 1
-                    source_images = images
-                    clips = []
-                    for clip_index in range(clip_count):
-                        if self.cancelled or self.bridge.stop.is_set():
-                            raise BridgeError("La generación fue cancelada")
-                        source = (source_images[clip_index] if clip_index < len(source_images)
-                                  else (clips[-1][-1] if clips else source_images[0]))
-                        def motion_progress(message, number=clip_index + 1):
-                            self._post(f"/api/worker/jobs/{job_id}/progress",
-                                       {"stage":f"FramePack {number}/{clip_count}: {message}"[:120],
-                                        "progress":None},attempt)
-                        motion_progress("Preparando clip")
-                        clips.append(generate_frames(
-                            self.bridge.local_url, source,
-                            str(params.get("motionPrompt") or "").strip(),
-                            cancelled=lambda:self.cancelled or self.bridge.stop.is_set(),
-                            progress=motion_progress,
-                            seconds=2.0 if quality == "alta" else 1.0,
-                            steps=18 if quality == "alta" else 8))
-                    images = join_motion_clips(clips)
-                    generated_motion = True
                 upload_audio=next((p for kind,p in assets if kind=="audio"),None)
                 if upload_audio and job.get("sourcePath"):
                     raise BridgeError("No puedes mezclar una canción y un audio subido como pista principal")
@@ -627,17 +721,76 @@ class VideoWorker:
                     data=self._get(job["sourcePath"],attempt)
                     soundtrack=root/("musica.mp3" if job.get("parent",{}).get("mime")=="audio/mpeg" else "musica.flac")
                     soundtrack.write_bytes(data)
-                voice=None
+                voice = None
+                dialogue_timeline = None
                 if params.get("narration"):
+                    self._post(f"/api/worker/jobs/{job_id}/progress",
+                               {"stage":"Generando y comprobando las voces del diálogo","progress":None},attempt)
                     voice=root/"voz.wav"
-                    windows_voice(str(params.get("script") or ""),voice,multi_voice=bool(params.get("multiVoice")))
+                    dialogue_timeline = windows_voice(str(params.get("script") or ""), voice,
+                        multi_voice=bool(params.get("multiVoice")), max_seconds=seconds)
+                generated_motion = False
+                full_motion = params.get("fullMotion") is True
+                if full_motion and params.get("animationMode") != "framepack":
+                    raise BridgeError("El movimiento continuo requiere FramePack")
+                if params.get("animationMode") == "framepack":
+                    if params.get("mode") == "letra":
+                        raise BridgeError("Los videos líricos no admiten FramePack")
+                    if self.bridge.job:
+                        raise BridgeError("Tu GPU está ocupada generando música; inténtalo cuando termine")
+                    from .framepack_adapter import generate_frames
+                    if not self.framepack_ready:
+                        raise BridgeError("FramePack no está instalado o faltan sus modelos; utiliza montaje clásico")
+                    source_images = images
+                    if full_motion:
+                        def full_stage(message):
+                            self._post(f"/api/worker/jobs/{job_id}/progress",
+                                       {"stage":message[:120],"progress":None},attempt)
+                        scene_prompts = params.get("scenePrompts") if isinstance(params.get("scenePrompts"), list) else []
+                        def generate_clip(source, number, completed, scene):
+                            def clip_stage(message):
+                                full_stage(f"Clip {number} · {completed:.1f}/{seconds} s: {message}")
+                            clip_stage("Preparando")
+                            scene_prompt = scene_prompts[scene] if scene < len(scene_prompts) else ""
+                            motion_prompt = str(scene_prompt or params.get("motionPrompt") or "").strip()
+                            return generate_frames(self.bridge.local_url, source,
+                                motion_prompt,
+                                cancelled=lambda:self.cancelled or self.bridge.stop.is_set(),
+                                progress=clip_stage, seconds=2.0,
+                                steps=18 if quality == "alta" else 8)
+                        images = generate_full_motion(source_images, root/"fotogramas", seconds, generate_clip,
+                            progress=full_stage, cancelled=lambda:self.cancelled or self.bridge.stop.is_set())
+                    else:
+                        # El modo corto conserva el comportamiento anterior y puede repetirse.
+                        clip_count = 3 if quality == "alta" else 1
+                        clips = []
+                        for clip_index in range(clip_count):
+                            if self.cancelled or self.bridge.stop.is_set():
+                                raise BridgeError("La generación fue cancelada")
+                            source = (source_images[clip_index] if clip_index < len(source_images)
+                                      else (clips[-1][-1] if clips else source_images[0]))
+                            def motion_progress(message, number=clip_index + 1):
+                                self._post(f"/api/worker/jobs/{job_id}/progress",
+                                           {"stage":f"FramePack {number}/{clip_count}: {message}"[:120],
+                                            "progress":None},attempt)
+                            motion_progress("Preparando clip")
+                            clips.append(generate_frames(
+                                self.bridge.local_url, source,
+                                str(params.get("motionPrompt") or "").strip(),
+                                cancelled=lambda:self.cancelled or self.bridge.stop.is_set(),
+                                progress=motion_progress,
+                                seconds=2.0 if quality == "alta" else 1.0,
+                                steps=18 if quality == "alta" else 8))
+                        images = join_motion_clips(clips)
+                    generated_motion = True
                 output=root/"sonora.mp4"
                 render_video(images,output,seconds=seconds,aspect=params.get("aspect","16:9"),
                              soundtrack=soundtrack,narration=voice,script=params.get("script", ""),
                              scene_sync=params.get("sceneSync","uniform"),
                              subtitles=bool(params.get("subtitles",True)),
                              lyrics_mode=params.get("mode")=="letra",
-                             generated_motion=generated_motion,quality=quality,
+                             generated_motion=generated_motion,quality=quality,full_motion=full_motion,
+                             dialogue_timeline=dialogue_timeline,
                              cancelled=lambda:self.cancelled or self.bridge.stop.is_set(),progress=progress)
                 self._post(f"/api/worker/jobs/{job_id}/progress",
                            {"stage":"Enviando MP4 al servidor","progress":None},attempt)

@@ -352,3 +352,61 @@ test("video: crear proyecto, reclamar worker, subir MP4 y aislar usuarios", {
     for(const cookie of users)await call("/api/profile",{cookie,method:"DELETE",json:{password}}).catch(()=>{});
   }
 });
+
+test("video continuo: solo un motor actualizado puede reclamar la tarea", {
+  skip: !base || !dbUrl || !token,
+}, async () => {
+  const password = "Clave-video-continuo-123";
+  const oldId = "video-old-" + randomUUID();
+  const newId = "video-full-" + randomUUID();
+  const bearer = {Authorization:`Bearer ${token}`};
+  let cookie;
+  let videoId;
+  let jobId;
+  async function call(path, {method="GET", json, form, auth=false, headers={}}={}) {
+    const response = await fetch(base+path, {method, headers:{...headers,
+      ...(auth && cookie ? {Cookie:cookie} : {}), ...(json ? {"Content-Type":"application/json"} : {})},
+      body:json ? JSON.stringify(json) : form});
+    return {response,data:await response.json()};
+  }
+  try {
+    const registered = await call("/api/auth/register", {method:"POST",json:{name:"Video continuo",
+      email:`continuo-${randomUUID()}@example.test`,password}});
+    assert.equal(registered.response.status,200,JSON.stringify(registered.data));
+    cookie = registered.response.headers.get("set-cookie").split(";")[0];
+    const heartbeat = async (workerId, capabilities) => call("/api/worker/heartbeat", {
+      method:"POST",headers:bearer,json:{workerId,engine:"sonora-video",info:{capabilities}}});
+    assert.equal((await heartbeat(oldId,["images","framepack"])).response.status,200);
+    function form() {
+      const value = new FormData();
+      for (const [key, item] of Object.entries({title:"Diálogo continuo",mode:"imagenes",aspect:"16:9",
+        duration:"60",quality:"alta",animationMode:"framepack",fullMotion:"true",narration:"true",
+        multiVoice:"true",script:"Luna: ¡Hola!\nSol: ¡Hola!",motionPrompt:"Two characters talk and move naturally",
+        scenePrompts:"\nSol walks toward Luna"})) value.set(key,item);
+      value.append("files",new Blob([Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/R9sAAAAASUVORK5CYII=","base64")],{type:"image/png"}),"escena.png");
+      return value;
+    }
+    const incompatible=await call("/api/videos",{method:"POST",auth:true,form:form()});
+    assert.equal(incompatible.response.status,422,JSON.stringify(incompatible.data));
+    assert.match(incompatible.data.error,/Actualiza el complemento/);
+    assert.equal((await heartbeat(newId,["images","framepack","framepack-full-v1"])).response.status,200);
+    const created=await call("/api/videos",{method:"POST",auth:true,form:form()});
+    assert.equal(created.response.status,201,JSON.stringify(created.data));
+    videoId=created.data.id; jobId=created.data.jobId;
+    const oldClaim=await call("/api/worker/claim",{method:"POST",headers:bearer,
+      json:{workerId:oldId,engine:"sonora-video"}});
+    assert.equal(oldClaim.data.job,null);
+    const newClaim=await call("/api/worker/claim",{method:"POST",headers:bearer,
+      json:{workerId:newId,engine:"sonora-video"}});
+    assert.equal(newClaim.data.job.id,jobId);
+    assert.equal(newClaim.data.job.params.fullMotion,true);
+    assert.equal(newClaim.data.job.params.multiVoice,true);
+    assert.deepEqual(newClaim.data.job.params.scenePrompts,["","Sol walks toward Luna"]);
+    const status=await call("/api/videos",{auth:true});
+    assert.equal(status.data.motor.framepackFullReady,true);
+  } finally {
+    if (jobId) await call(`/api/jobs/${jobId}/cancel`,{method:"POST",auth:true}).catch(()=>{});
+    if (videoId) await call(`/api/videos/${videoId}`,{method:"DELETE",auth:true}).catch(()=>{});
+    if (cookie) await call("/api/profile",{method:"DELETE",auth:true,json:{password}}).catch(()=>{});
+  }
+});

@@ -302,6 +302,10 @@ export async function claimJob(workerId: string, engine: string): Promise<Job | 
       started_at = now(), heartbeat_at = now(), stage = 'Preparando', progress = NULL, error = NULL
     WHERE id = (
       SELECT id FROM jobs WHERE status = 'pending' AND engine = ${engine}
+        AND (COALESCE(params ->> 'fullMotion', 'false') <> 'true' OR EXISTS (
+          SELECT 1 FROM workers WHERE workers.id = ${workerId} AND workers.engine = ${engine}
+            AND workers.info -> 'capabilities' ? 'framepack-full-v1'
+        ))
       ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED
     )
     RETURNING id`);

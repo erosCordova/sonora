@@ -2,7 +2,7 @@
 
 La plataforma añade la sección **Crear videos**, con proyectos privados y un motor audiovisual local paralelo al generador de música. El usuario adjunta imágenes JPG/PNG/WEBP o un capítulo manga CBZ/ZIP, selecciona canción propia o pista MP3/WAV/M4A/FLAC, añade opcionalmente un guion para narración con las voces instaladas en Windows, elige 15/30/60 segundos y el aspecto 16:9 o 9:16. El procesador local produce MP4 H.264/MPEG-4 + AAC y lo envía a la biblioteca privada.
 
-**No es todavía un modelo de texto a video ni de video generativo por difusión.** Las imágenes se animan con movimiento de cámara; no se inventan fotogramas nuevos, lipsync ni se detectan automáticamente los diálogos del manga. La importación PDF requiere PyMuPDF en ComfyUI. Las voces se sintetizan localmente por SAPI en Windows (depende de las voces instaladas). Si una voz falla, el proyecto informa del error en lugar de simular el éxito.
+El montaje clásico anima las imágenes con movimiento de cámara. El modo experimental FramePack genera fotogramas nuevos a partir de una imagen, pero todavía no sincroniza los labios ni detecta automáticamente los diálogos del manga. La importación PDF requiere PyMuPDF en ComfyUI. Las voces se sintetizan localmente por SAPI en Windows y dependen de las voces instaladas. Si una voz falla, el proyecto informa del error en lugar de simular el éxito.
 
 ## Conectar el motor
 
@@ -19,7 +19,7 @@ La parte de video utiliza CPU y memoria RAM; no bloquea el acceso del sitio web.
 
 Las fuentes y el MP4 se almacenan **temporalmente en PostgreSQL de Render**, que tiene capacidad limitada y fecha de expiración; no usar la versión gratuita como archivo definitivo de videos. Sólo se sirven videos al propietario autenticado. Los trabajos del motor requieren `WORKER_TOKEN`, identificador e intento correctos. Los archivos se validan por firma y extensión, las extracciones de ZIP limitan páginas/tamaño y no escriben rutas arbitrarias.
 
-**Pendiente después de la primera generación real:** migrar video y audio a almacenamiento de objetos persistente, agregar editor de escenas/personajes, análisis semántico de imagen y letra, TTS de voces múltiples y modelos de difusión de video ligeros compatibles con 6 GB de VRAM.
+**Pendiente después de la primera generación real:** migrar video y audio a almacenamiento de objetos persistente, agregar editor de escenas/personajes, análisis semántico de imagen y letra, voces más naturales y sincronización labial.
 
 ## Videoclips líricos
 
@@ -34,6 +34,16 @@ El motor experimental puede crear varios clips secuenciales de FramePack: el per
 Los MP4 se exportan en **HD 1280×720 / 720×1280 a 24 FPS, H.264 con CRF 19 y audio AAC de 192 kbps** para el perfil Alta. Equilibrada exporta a 960×540 / 540×960 y 24 FPS. FramePack sigue generando imágenes internamente a ~384 px, por lo que un MP4 720p es un **reescalado**, no generación nativa a 720p. El peso máximo del archivo sigue siendo 40 MiB en la infraestructura gratuita.
 
 En FramePack **no se muestra un porcentaje ficticio** mientras el modelo genera: la interfaz indica la etapa y el clip activo. Durante la codificación MP4 se muestra el porcentaje verificable de fotogramas codificados.
+
+### Movimiento durante toda la duración
+
+El modo opcional **Generar movimiento durante todo el video** encadena clips nuevos de FramePack hasta reunir suficientes fotogramas para la duración elegida. Se pueden añadir instrucciones de movimiento por imagen, una por línea; las líneas vacías utilizan la descripción general. El procesamiento es secuencial y guarda los fotogramas intermedios en disco para no mantener todo el minuto en RAM. Se informa de los segundos de material ya generado; esto no es un porcentaje de la inferencia que esté ejecutándose en ese instante. El modo corto anterior sigue disponible.
+
+Esta opción puede tardar muchas horas en una RTX 4050 de 6 GB. Se necesita espacio libre: además de los temporales del montaje, ComfyUI puede conservar miles de imágenes de salida. Mantén el equipo despierto y conectado; si la tarea se interrumpe, actualmente debe empezar de nuevo. La coherencia visual entre clips y los movimientos solicitados no están garantizados. FramePack sigue generando alrededor de 384 píxeles y el MP4 HD se reescala; no se realiza sincronización labial automática.
+
+Para usar el modo completo hay que actualizar el complemento local de Sonora y reiniciar y reconectar ComfyUI. El sitio solo lo habilita si el motor conectado anuncia la capacidad correspondiente; un motor antiguo no puede reclamar una tarea de movimiento completo.
+
+Las voces se generan antes de iniciar la tarea de GPU. El guion admite líneas como `Luna: ...` y `Sol: ...`; se asignan las voces disponibles en Windows y, si solo hay una, se ajusta la velocidad. Los subtítulos se muestran durante la duración real de cada línea de audio. Si el guion hablado no cabe en la duración elegida, el proyecto falla antes de generar los clips para que se pueda acortar.
 
 ### Preparación del equipo local
 

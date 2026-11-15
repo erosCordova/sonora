@@ -57,7 +57,7 @@ class VideoWorkerTests(unittest.TestCase):
         from comfyui_bridge.video_worker import parse_dialogue, windows_voice
         from unittest.mock import patch
         import base64
-        import sys
+        import re
         lines=parse_dialogue("Narrador: Empieza la aventura.\nLuna: ¡Hola!\nLuna: Ya voy.\nSolo narración")
         self.assertEqual([x["speaker"] for x in lines],["Narrador","Luna","Luna","Narrador"])
         self.assertEqual(lines[1]["text"],"¡Hola!")
@@ -68,12 +68,27 @@ class VideoWorkerTests(unittest.TestCase):
                 self.assertIn("SelectVoice",source)
                 self.assertIn("GetInstalledVoices",source)
                 self.assertNotIn("¡Hola!",source)
-                output.write_bytes(b"RIFF"+b"\0"*1100)
+                payload = re.search(r"FromBase64String\('([^']+)'\)", source).group(1)
+                entries = json.loads(base64.b64decode(payload).decode("utf8"))
+                for entry in entries:
+                    with wave.open(entry["path"], "wb") as track:
+                        track.setnchannels(1); track.setsampwidth(2); track.setframerate(8000)
+                        track.writeframes(b"\0\0" * 4000)
                 return type("Process",(),{"returncode":0})()
             with patch("comfyui_bridge.video_worker.sys.platform","win32"),\
                  patch("comfyui_bridge.video_worker.subprocess.run",side_effect=fake_run):
-                windows_voice("Luna: ¡Hola!",output,multi_voice=True)
+                timing=windows_voice("Luna: ¡Hola!\nSol: ¡Voy!",output,multi_voice=True,max_seconds=2)
             self.assertTrue(output.is_file())
+            self.assertEqual([entry["speaker"] for entry in timing],["Luna","Sol"])
+            self.assertAlmostEqual(timing[0]["end"], .5)
+            self.assertAlmostEqual(timing[1]["start"], .75)
+            self.assertAlmostEqual(timing[1]["end"], 1.25)
+            with wave.open(str(output), "rb") as result:
+                self.assertEqual(result.getnframes(),10000)
+            with patch("comfyui_bridge.video_worker.sys.platform","win32"),\
+                 patch("comfyui_bridge.video_worker.subprocess.run",side_effect=fake_run):
+                with self.assertRaisesRegex(BridgeError,"supera"):
+                    windows_voice("Luna: ¡Hola!\nSol: ¡Voy!",output,multi_voice=True,max_seconds=1)
 
     def test_scene_cuts_follow_music_transients(self):
         import numpy as np
@@ -87,6 +102,15 @@ class VideoWorkerTests(unittest.TestCase):
         self.assertEqual(rhythmic[0],0)
         self.assertEqual(rhythmic[-1],180)
         self.assertTrue(all(b>a for a,b in zip(rhythmic,rhythmic[1:])))
+
+    def test_subtitles_follow_actual_voice_times_and_pauses(self):
+        from comfyui_bridge.video_worker import dialogue_caption
+        lines=[{"start":0.0,"end":1.0,"speaker":"Luna","text":"¡Hola!"},
+               {"start":1.25,"end":2.5,"speaker":"Sol","text":"¡Hola, Luna!"}]
+        self.assertEqual(dialogue_caption(lines,0.5),"Luna: ¡Hola!")
+        self.assertEqual(dialogue_caption(lines,1.1),"")
+        self.assertEqual(dialogue_caption(lines,1.5),"Sol: ¡Hola, Luna!")
+        self.assertEqual(dialogue_caption(lines,2.5),"")
 
 
     def test_lyric_video_without_images(self):
@@ -123,6 +147,82 @@ class VideoWorkerTests(unittest.TestCase):
         out=join_motion_clips(clips,fade_frames=2)
         self.assertEqual(len(out),14)
         self.assertNotEqual(out[6].getpixel((2,2)),out[7].getpixel((2,2)))
+
+    def test_full_motion_generates_until_coverage_without_reusing_frames(self):
+        from PIL import Image
+        from comfyui_bridge.video_worker import generate_full_motion
+        with tempfile.TemporaryDirectory() as folder:
+            scenes=[Image.new("RGB",(16,16),"red"),Image.new("RGB",(16,16),"blue")]
+            calls=[]
+            progress=[]
+            def generate(source, number, completed, scene):
+                calls.append((number, completed, source.getpixel((0,0)), scene))
+                return [Image.new("RGB",(16,16),(number * 20, i, 0)) for i in range(60)]
+            frames=generate_full_motion(scenes,Path(folder),15,generate,progress=progress.append)
+            self.assertEqual(len(frames),450)
+            self.assertGreater(len(calls),3)
+            self.assertEqual(calls[0][2],(255,0,0))
+            self.assertTrue(any(color == (0,0,255) and scene == 1 for _,_,color,scene in calls))
+            self.assertTrue(all(p.is_file() for p in frames))
+            with Image.open(frames[0]) as first, Image.open(frames[-1]) as last:
+                self.assertNotEqual(first.getpixel((0,0)),last.getpixel((0,0)))
+            self.assertIn("15.0/15",progress[-1])
+
+    def test_full_motion_rejects_short_clips_and_cancellation(self):
+        from PIL import Image
+        from comfyui_bridge.video_worker import generate_full_motion
+        scene=Image.new("RGB",(16,16),"red")
+        with tempfile.TemporaryDirectory() as folder:
+            with self.assertRaisesRegex(BridgeError,"demasiado corto"):
+                generate_full_motion([scene],Path(folder),15,lambda *_:[scene]*2)
+            with self.assertRaisesRegex(BridgeError,"cancelada"):
+                generate_full_motion([scene],Path(folder),15,lambda *_:[scene]*60,cancelled=lambda:True)
+
+    def test_invalid_dialogue_fails_before_starting_the_gpu(self):
+        import threading
+        from unittest.mock import Mock, patch
+        from PIL import Image
+        from comfyui_bridge.video_worker import VideoWorker
+        bridge=Mock()
+        bridge.stop=threading.Event()
+        bridge.local_url="http://127.0.0.1:8188"
+        worker=VideoWorker(bridge)
+        worker.framepack_ready=True
+        worker._get=Mock(return_value=b"bundle")
+        worker._post=Mock(return_value={})
+        job={"id":"video-test","attempts":1,"kind":"video","params":{"duration":60,
+             "quality":"alta","narration":True,"script":"Luna: Una línea",
+             "animationMode":"framepack","fullMotion":True,"motionPrompt":"Move naturally"}}
+        with patch("comfyui_bridge.video_worker.unpack_bundle",return_value=[("image",Path("scene.png"))]),\
+             patch("comfyui_bridge.video_worker.load_images",return_value=[Image.new("RGB",(16,16),"red")]),\
+             patch("comfyui_bridge.video_worker.windows_voice",side_effect=BridgeError("El diálogo supera la duración")),\
+             patch("comfyui_bridge.framepack_adapter.generate_frames") as gpu,\
+             patch("comfyui_bridge.video_worker.log.exception"):
+            worker._process(job)
+        gpu.assert_not_called()
+        self.assertTrue(any(call.args[0].endswith("/fail") for call in worker._post.call_args_list))
+        self.assertIn("supera",worker.last_error)
+
+    def test_full_motion_video_keeps_frames_in_order(self):
+        import av
+        from PIL import Image
+        # Los fotogramas cambian gradualmente; un bucle o un descarte rompería el orden.
+        frames=[Image.new("RGB",(16,16),(i//2,0,0)) for i in range(450)]
+        with tempfile.TemporaryDirectory() as folder:
+            target=Path(folder)/"completo.mp4"
+            render_video(frames,target,seconds=15,aspect="16:9",soundtrack=None,narration=None,
+                         generated_motion=True,full_motion=True,quality="equilibrada",subtitles=False)
+            samples=[]
+            with av.open(str(target)) as video:
+                for i, frame in enumerate(video.decode(video=0)):
+                    if i in (0,168,336):
+                        samples.append(int(frame.to_ndarray(format="rgb24")[100,100,0]))
+            self.assertEqual(len(samples),3)
+            self.assertGreater(samples[1],samples[0]+30)
+            self.assertGreater(samples[2],samples[1]+30)
+            with self.assertRaisesRegex(BridgeError,"suficientes"):
+                render_video(frames[:50],Path(folder)/"corto.mp4",seconds=15,aspect="16:9",
+                             soundtrack=None,narration=None,generated_motion=True,full_motion=True)
 
     def test_renders_real_mp4_with_audio(self):
         import av

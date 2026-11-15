@@ -27,7 +27,7 @@ type Project = {
 type MediaAsset = { id: string; file: File; url: string | null };
 type VideoResponse = {
   videos: Project[];
-  motor?: { online: boolean; framepackReady: boolean; pending: number; running: number };
+  motor?: { online: boolean; framepackReady: boolean; framepackFullReady?: boolean; pending: number; running: number };
 };
 const visuals = /\.(png|jpe?g|webp|cbz|zip|pdf)$/i;
 const audioExt = /\.(mp3|wav|m4a|flac)$/i;
@@ -58,6 +58,8 @@ export function VideoStudio() {
   const [sceneSync, setSceneSync] = useState<"uniform" | "music">("music");
   const [subtitles, setSubtitles] = useState(true);
   const [animationMode, setAnimationMode] = useState<"classic"|"framepack">("classic");
+  const [fullMotion, setFullMotion] = useState(false);
+  const [scenePrompts, setScenePrompts] = useState("");
   const [motionPrompt, setMotionPrompt] = useState("The main subject visibly turns its head, blinks, and moves naturally. Clear, fluid physical motion, stable camera, consistent anatomy and lighting, cinematic detail.");
   const [songId, setSongId] = useState("");
   const [assets, setAssets] = useState<MediaAsset[]>([]);
@@ -195,6 +197,10 @@ export function VideoStudio() {
     if (!canProcess) return toast.error("Conecta el motor de video en ComfyUI antes de generar.");
     if (animationMode==="framepack" && (!motor?.framepackReady || motionPrompt.trim().length<4))
       return toast.error("FramePack debe estar instalado y el movimiento descrito antes de generar.");
+    if (animationMode==="framepack" && fullMotion && !motor?.framepackFullReady)
+      return toast.error("Actualiza el complemento Sonora en ComfyUI para usar movimiento continuo.");
+    if (animationMode==="framepack" && fullMotion && (scenePrompts.split(/\r?\n/).length > 12 || scenePrompts.split(/\r?\n/).some((line) => line.trim().length > 0 && (line.trim().length < 4 || line.trim().length > 500))))
+      return toast.error("Usa hasta 12 instrucciones de escena de entre 4 y 500 caracteres.");
     setBusy(true);
     try {
       const form = new FormData();
@@ -202,7 +208,9 @@ export function VideoStudio() {
         title: title.trim(), mode, aspect, duration: String(duration), quality,
         script, narration: String(narration), songId,
         splitPanels: String(mode==="manga" && splitPanels), readingOrder,
-        multiVoice: String(narration && multiVoice), sceneSync, subtitles: String(subtitles), animationMode, motionPrompt,
+        multiVoice: String(narration && multiVoice), sceneSync, subtitles: String(subtitles), animationMode,
+        fullMotion: String(animationMode==="framepack" && fullMotion), motionPrompt,
+        scenePrompts: animationMode==="framepack" && fullMotion ? scenePrompts : "",
       })) form.set(key, value);
       if (mode !== "letra") for (const item of assets) form.append("files", item.file, item.file.name);
       if (audio) form.append("files", audio, audio.name);
@@ -374,20 +382,20 @@ export function VideoStudio() {
             <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-line bg-surface-2/60 p-4">
               <input type="checkbox" checked={narration} onChange={(e)=>setNarration(e.target.checked)} className="mt-1 h-4 w-4 accent-[var(--brand)]"/>
               <span className="flex-1"><span className="flex items-center gap-2 text-sm font-bold"><Mic2 className="h-4 w-4 text-brand"/>Añadir narración</span>
-                <span className="mt-1 block text-xs leading-relaxed text-muted">Genera una voz de narrador con el motor local de Windows; se mezcla con el audio si seleccionaste una pista.</span></span>
+                <span className="mt-1 block text-xs leading-relaxed text-muted">Genera voces con el motor local de Windows; se mezclan con el audio si seleccionaste una pista.</span></span>
             </label>
-            {narration && mode === "manga" && <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-brand/20 bg-brand/5 p-3">
+            {narration && mode !== "letra" && <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-brand/20 bg-brand/5 p-3">
               <input type="checkbox" checked={multiVoice} onChange={(e)=>setMultiVoice(e.target.checked)}
                 className="mt-0.5 h-4 w-4 accent-[var(--brand)]"/>
               <span><span className="block text-sm font-bold">Voces diferentes para personajes</span>
-                <span className="mt-1 block text-xs leading-relaxed text-muted">Escribe cada línea como «Narrador: ...», «Personaje: ...». Sonora asigna voces y velocidades diferentes según las voces disponibles en Windows, sin clonarlas.</span></span>
+                <span className="mt-1 block text-xs leading-relaxed text-muted">Escribe cada línea como «Narrador: ...», «Personaje: ...». Se asignan voces disponibles en Windows; si solo hay una, se ajusta la velocidad.</span></span>
             </label>}
             {mode==="letra" && chosenSong && hasLyrics(chosenSong.lyrics) && <Button type="button" size="sm" onClick={()=>setScript(chosenSong.lyrics.slice(0,3000))}><FileText className="h-4 w-4"/>Usar la letra original de la canción</Button>}
-            {(narration || mode==="letra") && <Field label={mode==="letra"?"Letra para el video":mode==="manga"?"Diálogos por personaje":"Guion de narración"} hint={`${script.length}/3000`}>
+            {(narration || mode==="letra") && <Field label={mode==="letra"?"Letra para el video":multiVoice?"Diálogos por personaje":"Guion de narración"} hint={`${script.length}/3000`}>
               <Textarea rows={7} maxLength={3000} value={script} onChange={(e)=>setScript(e.target.value)}
                 placeholder={mode==="letra"
                   ? "[Verse]\nBajo el mismo cielo...\n[Chorus]\nSiempre volveré a ti..."
-                  : mode==="manga"
+                  : multiVoice
                     ? "Narrador: Un nuevo día comienza.\nHéroe: Debemos salir de aquí.\nCompañera: ¡Voy contigo!"
                     : "Narrador: En una ciudad lejana comienza una nueva aventura..."}/>
             </Field>}
@@ -420,7 +428,7 @@ export function VideoStudio() {
                 <option value="alta">Alta · MP4 HD 720p, 24 FPS, audio 192 kbps</option>
                 <option value="equilibrada">Equilibrada · MP4 540p, 24 FPS, menor consumo</option>
               </Select>
-              <p className="mt-2 text-xs leading-relaxed text-muted">La calidad alta utiliza hasta 3 clips generativos consecutivos con FramePack (aprox. 6 s únicos) y los ensambla en un video de 15, 30 o 60 s. Genera a 384 px y exporta reescalado a HD; no es inferencia nativa en 720p. La RTX 4050 de 6 GB puede tardar bastante o quedarse sin memoria.</p>
+              <p className="mt-2 text-xs leading-relaxed text-muted">FramePack genera a unos 384 px y exporta reescalado a HD; no es inferencia nativa en 720p. La RTX 4050 de 6 GB puede tardar bastante o quedarse sin memoria.</p>
             </Field>
             {mode !== "letra" && <div className="space-y-3 rounded-2xl border border-line bg-surface-2/55 p-4">
               <h3 className="text-sm font-bold">Tipo de movimiento</h3>
@@ -430,11 +438,21 @@ export function VideoStudio() {
               </label>
               <label className="flex cursor-pointer items-start gap-2 text-sm">
                 <input type="radio" name="motion-engine" checked={animationMode==="framepack"} disabled={!motor?.framepackReady} onChange={()=>setAnimationMode("framepack")} className="mt-1 accent-[var(--brand)]"/>
-                <span><strong>Movimiento por IA · FramePack (experimental)</strong><span className="block text-xs leading-relaxed text-muted">En calidad alta genera hasta tres secuencias consecutivas de movimiento real (aprox. 6 s únicos) para el montaje con sonido. La duración final puede contener repeticiones; requiere FramePack y puede agotar 6 GB de VRAM.</span></span>
+                <span><strong>Movimiento por IA · FramePack (experimental)</strong><span className="block text-xs leading-relaxed text-muted">En modo corto, la calidad alta genera hasta tres secuencias de movimiento (aprox. 6 s) y puede repetirlas. Activa el movimiento completo para generar más clips.</span></span>
               </label>
               {!motor?.framepackReady && <p className="text-xs text-warn">La generación por IA aparecerá disponible cuando el complemento FramePack y todos sus modelos sean detectados en tu ComfyUI local.</p>}
+              {animationMode==="framepack" && <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-brand/20 bg-brand/5 p-3 text-sm">
+                <input type="checkbox" checked={fullMotion} disabled={!motor?.framepackFullReady} onChange={(e)=>setFullMotion(e.target.checked)} className="mt-1 h-4 w-4 accent-[var(--brand)]"/>
+                <span><strong>Generar movimiento durante todo el video</strong>
+                  <span className="mt-1 block text-xs leading-relaxed text-muted">Crea clips nuevos en secuencia hasta cubrir la duración elegida, sin repetirlos en bucle. Puede tardar muchas horas y guardar numerosos fotogramas en tu equipo; si se interrumpe tendrás que empezar de nuevo. Las voces no sincronizan automáticamente los labios.</span>
+                  {!motor?.framepackFullReady && <span className="mt-1 block text-xs text-warn">Actualiza y reconecta el complemento Sonora en ComfyUI para activar esta opción.</span>}
+                </span>
+              </label>}
               {animationMode==="framepack" && <Field label="¿Qué movimiento debe generar la IA?">
                 <Textarea rows={3} maxLength={500} value={motionPrompt} onChange={(e)=>setMotionPrompt(e.target.value)} placeholder="La figura gira lentamente la cabeza, viento suave..."/>
+              </Field>}
+              {animationMode==="framepack" && fullMotion && <Field label="Movimiento para cada escena" hint="Opcional: una línea por imagen, en el orden de las escenas">
+                <Textarea rows={4} maxLength={3000} value={scenePrompts} onChange={(e)=>setScenePrompts(e.target.value)} placeholder={"Los personajes se encuentran y se miran.\nUno señala el camino mientras el otro escucha.\nCaminan juntos hacia el bosque."}/>
               </Field>}
             </div>}
             <div className="space-y-3 rounded-2xl border border-line bg-surface-2/55 p-4">
@@ -467,7 +485,7 @@ export function VideoStudio() {
               </div>
             </div>
             <p className="rounded-xl border border-line bg-surface-2 p-3 text-xs leading-relaxed text-muted">
-              {mode==="letra" ? "Se creará un video lírico con fondos animados en HD de exportación. No se generan escenas cinematográficas por IA." : animationMode==="framepack" ? "La IA produce clips generativos breves. Sonora une los fotogramas y los ensambla con audio; el resultado puede repetir movimiento. Los 720p corresponden a la exportación reescalada, no a la resolución nativa del modelo." : "Animación de cámara de fotografías o manga y sonido en MP4. No hay movimiento corporal ni sincronización labial automática."}
+              {mode==="letra" ? "Se creará un video lírico con fondos animados en HD de exportación. No se generan escenas cinematográficas por IA." : animationMode==="framepack" ? (fullMotion ? "La IA generará clips sucesivos hasta cubrir toda la duración; la coherencia de los personajes puede variar. Las voces no sincronizan los labios. Los 720p corresponden a la exportación reescalada, no a resolución nativa." : "La IA produce clips generativos breves. Sonora une los fotogramas y los ensambla con audio; el resultado puede repetir movimiento. Los 720p corresponden a la exportación reescalada, no a la resolución nativa del modelo.") : "Animación de cámara de fotografías o manga y sonido en MP4. No hay movimiento corporal ni sincronización labial automática."}
             </p>
             <div className="flex flex-wrap justify-between gap-3 border-t border-line pt-4">
               <Button type="button" onClick={()=>setStep(2)}><ArrowLeft className="h-4 w-4"/>Volver</Button>
