@@ -313,6 +313,17 @@ def assemble_dialogue(dialogue, tracks, output: Path, max_seconds: int | None = 
     return timeline
 
 
+def automatic_video_seconds(dialogue_timeline, padding: int = 2):
+    """Ajusta el metraje a la duración medida de las voces, sin cortar el diálogo."""
+    import math
+    if not dialogue_timeline:
+        raise BridgeError("No hay diálogo para calcular la duración automática")
+    seconds = max(15, math.ceil(float(dialogue_timeline[-1]["end"]) + padding))
+    if seconds > MAX_SECONDS:
+        raise BridgeError("El diálogo supera los 5 minutos; divide el guion en capítulos")
+    return seconds
+
+
 def windows_voice(text: str, output: Path, multi_voice: bool = False, max_seconds: int | None = None):
     """Genera una pista por línea con Microsoft SAPI y conserva sus tiempos reales."""
     if sys.platform != "win32":
@@ -434,13 +445,13 @@ def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack:
     with av.open(str(output), mode="w", format="mp4") as mux:
         try:
             vs = mux.add_stream("libx264", rate=fps)
-            target_kbps = min(3500 if quality == "alta" else 2200, max(600, int(275000 / seconds)))
+            target_kbps = min(3500 if quality == "alta" else 2200, max(600, int(205000 / seconds)))
             vs.options = {"preset":"medium" if quality == "alta" else "fast",
                           "crf":"21" if quality == "alta" else "24",
                           "maxrate":f"{target_kbps}k","bufsize":f"{target_kbps * 2}k"}
         except (av.AVError, ValueError, AttributeError):
             vs = mux.add_stream("mpeg4", rate=fps)
-            vs.bit_rate = min(3_000_000 if quality == "alta" else 2_000_000, int(275_000_000 / seconds))
+            vs.bit_rate = min(3_000_000 if quality == "alta" else 2_000_000, int(205_000_000 / seconds))
         vs.width, vs.height = width, height
         vs.pix_fmt = "yuv420p"
         audio = mux.add_stream("aac", rate=44100)
@@ -736,10 +747,7 @@ class VideoWorker:
                     dialogue_timeline = windows_voice(str(params.get("script") or ""), voice,
                         multi_voice=bool(params.get("multiVoice")), max_seconds=seconds or MAX_SECONDS)
                     if seconds == 0:
-                        import math
-                        seconds = max(15, math.ceil(dialogue_timeline[-1]["end"] + 2))
-                        if seconds > MAX_SECONDS:
-                            raise BridgeError("El diálogo supera los 5 minutos; divide el guion en capítulos")
+                        seconds = automatic_video_seconds(dialogue_timeline)
                         self._post(f"/api/worker/jobs/{job_id}/progress",
                                    {"stage":f"Duración calculada a partir del diálogo: {seconds} s","progress":None},attempt)
                 generated_motion = False
