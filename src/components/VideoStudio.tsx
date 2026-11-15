@@ -48,7 +48,7 @@ export function VideoStudio() {
   const [mode, setMode] = useState<Mode>("imagenes");
   const [title, setTitle] = useState("Mi nuevo video");
   const [aspect, setAspect] = useState<Aspect>("16:9");
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(60);
   const [quality, setQuality] = useState<VideoQuality>("alta");
   const [script, setScript] = useState("");
   const [narration, setNarration] = useState(false);
