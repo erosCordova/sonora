@@ -48,7 +48,7 @@ export function VideoStudio() {
   const [mode, setMode] = useState<Mode>("imagenes");
   const [title, setTitle] = useState("Mi nuevo video");
   const [aspect, setAspect] = useState<Aspect>("16:9");
-  const [duration, setDuration] = useState(15);
+  const [duration, setDuration] = useState(0);
   const [quality, setQuality] = useState<VideoQuality>("alta");
   const [script, setScript] = useState("");
   const [narration, setNarration] = useState(false);
@@ -194,6 +194,7 @@ export function VideoStudio() {
     }
     if (title.trim().length < 2) return toast.error("Escribe un título de al menos dos caracteres.");
     if(mode==="letra" && !hasLyrics(script || chosenSong?.lyrics || "")) return toast.error("El video lírico necesita versos; no bastan etiquetas como [Verse].");
+    if (duration === 0 && !narration) return toast.error("La duración automática necesita un guion narrado.");
     if (!canProcess) return toast.error("Conecta el motor de video en ComfyUI antes de generar.");
     if (animationMode==="framepack" && (!motor?.framepackReady || motionPrompt.trim().length<4))
       return toast.error("FramePack debe estar instalado y el movimiento descrito antes de generar.");
@@ -246,7 +247,7 @@ export function VideoStudio() {
         </div>
         <div className="relative mt-6 flex flex-wrap gap-2 text-[11px] font-semibold text-white/90">
           <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5">MP4 · horizontal / vertical</span>
-          <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5">Hasta 60 segundos</span>
+          <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5">Duración adaptable al diálogo · hasta 5 min</span>
           <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5">Procesamiento local</span>
         </div>
       </section>
@@ -420,7 +421,7 @@ export function VideoStudio() {
                 <option value="16:9">16:9 · Horizontal</option><option value="9:16">9:16 · Vertical</option>
               </Select></Field>
               <Field label="Duración"><Select value={duration} onChange={(e)=>setDuration(Number(e.target.value))}>
-                <option value={15}>15 segundos</option><option value={30}>30 segundos</option><option value={60}>60 segundos</option>
+                <option value={0} disabled={!narration}>Automática · según el diálogo</option><option value={15}>15 segundos</option><option value={30}>30 segundos</option><option value={60}>60 segundos</option><option value={120}>2 minutos</option><option value={180}>3 minutos</option><option value={300}>5 minutos</option>
               </Select></Field>
             </div>
             <Field label="Calidad de exportación">
@@ -479,7 +480,7 @@ export function VideoStudio() {
               <div className="self-center space-y-3 text-sm">
                 <p className="font-bold">{title.trim() || "Sin título"}</p>
                 <p className="flex items-center gap-2 text-muted"><FileImage className="h-4 w-4 text-brand"/>{mode==="letra"?"Fondo animado y letra original":`${assets.length} archivo(s) visuales`}</p>
-                <p className="flex items-center gap-2 text-muted"><Clock3 className="h-4 w-4 text-brand"/>{duration} segundos · {aspect}</p>
+                <p className="flex items-center gap-2 text-muted"><Clock3 className="h-4 w-4 text-brand"/>{duration === 0 ? "Automática según las voces" : `${duration} segundos`} · {aspect}</p>
                 <p className="flex items-center gap-2 text-muted"><Volume2 className="h-4 w-4 text-brand"/>{chosenSong?.title ?? audio?.name ?? "Solo narración"}</p>
                 {narration && <p className="flex items-center gap-2 text-muted"><Mic2 className="h-4 w-4 text-brand"/>Narración local activada</p>}
               </div>
