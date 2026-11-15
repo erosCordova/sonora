@@ -434,9 +434,10 @@ def render_video(images, output: Path, *, seconds: int, aspect: str, soundtrack:
     with av.open(str(output), mode="w", format="mp4") as mux:
         try:
             vs = mux.add_stream("libx264", rate=fps)
-            vs.options = ({"preset":"medium","crf":"19","maxrate":"4200k","bufsize":"8400k"}
-                          if quality == "alta" else
-                          {"preset":"fast","crf":"22","maxrate":"2700k","bufsize":"5400k"})
+            target_kbps = min(3500 if quality == "alta" else 2200, max(600, int(275000 / seconds)))
+            vs.options = {"preset":"medium" if quality == "alta" else "fast",
+                          "crf":"21" if quality == "alta" else "24",
+                          "maxrate":f"{target_kbps}k","bufsize":f"{target_kbps * 2}k"}
         except (av.AVError, ValueError, AttributeError):
             vs = mux.add_stream("mpeg4", rate=fps)
             vs.bit_rate = min(3_000_000 if quality == "alta" else 2_000_000, int(275_000_000 / seconds))
